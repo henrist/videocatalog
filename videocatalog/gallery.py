@@ -112,6 +112,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             border-radius: 8px;
             cursor: pointer;
             margin-bottom: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
         .source-header:hover { background: #3a3a3a; }
         .source-header h2 {
@@ -135,7 +138,73 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             transition: transform 0.2s;
         }
         .source-group.collapsed .toggle-icon { transform: rotate(-90deg); }
-        .source-group.collapsed .gallery { display: none; }
+        .source-group.collapsed .gallery,
+        .source-group.collapsed .clip-group { display: none; }
+        /* Clip groups */
+        .clip-group {
+            margin: 12px 0;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 8px;
+            background: rgba(60, 60, 80, 0.2);
+        }
+        .clip-group-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            position: static;
+        }
+        .clip-group-header .toggle-icon {
+            font-size: 12px;
+            color: #888;
+            transition: transform 0.2s;
+        }
+        .clip-group.collapsed .toggle-icon { transform: rotate(-90deg); }
+        .clip-group.collapsed .gallery { display: none; }
+        .clip-group-header .group-name {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .clip-group-header .group-tags-year {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
+            flex: 1;
+        }
+        .clip-group-header .group-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .edit-range-btn, .delete-group-btn {
+            display: none;
+            font-size: 11px;
+            color: #666;
+            cursor: pointer;
+            padding: 2px 6px;
+        }
+        .edit-range-btn:hover { color: #aaa; }
+        .delete-group-btn:hover { color: #f88; }
+        body.api-available .clip-group-header:hover .edit-range-btn,
+        body.api-available .clip-group-header:hover .delete-group-btn { display: inline; }
+        /* Group creation mode */
+        body.group-mode .video-card { cursor: crosshair; }
+        body.group-mode .video-card:hover { outline: 2px dashed #88f; }
+        .video-card.group-start { outline: 2px solid #8f8 !important; }
+        .video-card.group-pending { outline: 2px dashed #ff8 !important; }
+        .start-group-btn {
+            display: none;
+            font-size: 11px;
+            color: #666;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+        .start-group-btn:hover { color: #aaa; }
+        body.api-available .source-header:hover .start-group-btn { display: inline; }
         .gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
@@ -243,19 +312,18 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
         .add-btn:hover { color: #aaa; }
         body.api-available .video-card:hover .add-btn,
-        body.api-available .source-header:hover .add-btn { display: inline-block; }
-        .source-description {
+        body.api-available .source-header:hover .add-btn,
+        body.api-available .clip-group-header:hover .add-btn { display: inline-block; }
+        .source-description, .group-description {
             font-size: 13px;
             color: #aaa;
-            margin-top: 8px;
-            padding: 0 12px 12px;
             white-space: pre-wrap;
         }
-        .source-description:empty { display: none; }
-        .source-description.editing {
-            display: block;
-        }
-        .source-description textarea {
+        .source-description { margin-top: 8px; padding: 0 12px 12px; }
+        .group-description { padding: 0 8px 8px; }
+        .source-description:empty, .group-description:empty { display: none; }
+        .source-description.editing, .group-description.editing { display: block; }
+        .source-description textarea, .group-description textarea {
             width: 100%;
             min-height: 60px;
             padding: 8px;
@@ -274,7 +342,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             margin-left: 8px;
         }
         .add-desc-btn:hover { color: #aaa; }
-        body.api-available .source-header:hover .add-desc-btn { display: inline; }
+        body.api-available .source-header:hover .add-desc-btn,
+        body.api-available .clip-group-header:hover .add-desc-btn { display: inline; }
         .inline-popup {
             display: none;
             position: fixed;
@@ -380,6 +449,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             <h2 onclick="toggleGroup(this.parentElement)">{source_name}</h2>
             <div class="source-tags-year" data-source="{source_name}"></div>
             <span class="add-desc-btn" data-source="{source_name}">+description</span>
+            <span class="start-group-btn" data-source="{source_name}">+group</span>
             <span class="clip-count" onclick="toggleGroup(this.parentElement)">{len(clips)} clips</span>
         </div>
         <div class="source-description" data-source="{source_name}"></div>
@@ -390,7 +460,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             video_path = f"{source_name}/{clip.file}"
             transcript_escaped = html_lib.escape(clip.transcript)
             html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}" data-clip="{clip.name}" data-video="{video_path}">
-                <div class="thumb-grid" onclick="playVideo(this.closest('.video-card'))">{thumbs_html}</div>
+                <div class="thumb-grid">{thumbs_html}</div>
                 <div class="video-info">
                     <div class="video-header">
                         <div class="video-name">{clip.name}</div>
@@ -433,30 +503,72 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         const tagFiltersEl = document.getElementById('tagFilters');
         let activeFilters = new Set();
 
-        // Get resolved tags and year for a clip (with inheritance)
+        // Helper to get clip index from name (e.g., "video_001" -> 1)
+        function getClipIndex(clipName) {{
+            const match = clipName.match(/(\\d+)$/);
+            return match ? parseInt(match[1], 10) : 0;
+        }}
+
+        // Check if a clip is within a group's range
+        function clipInGroup(clipName, group) {{
+            const clipIdx = getClipIndex(clipName);
+            const startIdx = getClipIndex(group.start_clip);
+            const endIdx = getClipIndex(group.end_clip);
+            return clipIdx >= startIdx && clipIdx <= endIdx;
+        }}
+
+        // Find the group containing a clip
+        function findGroupForClip(source, clipName) {{
+            const edits = userEdits[source] || {{}};
+            const groups = edits.groups || [];
+            return groups.find(g => clipInGroup(clipName, g));
+        }}
+
+        // Get resolved tags and year for a clip (with inheritance: video -> group -> clip)
         function getResolvedMeta(source, clipName) {{
             const edits = userEdits[source] || {{}};
             const videoMeta = edits.video || {{}};
             const clipMeta = (edits.clips || {{}})[clipName] || {{}};
+            const group = findGroupForClip(source, clipName);
+            const groupMeta = group || {{}};
 
-            // Merge tags: clip tags override video tags with same name
-            const videoTags = (videoMeta.tags || []).map(t => ({{...t, inherited: true}}));
+            // Start with video tags (marked inherited)
+            let baseTags = (videoMeta.tags || []).map(t => ({{...t, inherited: true, inheritedFrom: 'video'}}));
+
+            // Override with group tags
+            if (group) {{
+                const groupTags = (groupMeta.tags || []).map(t => ({{...t, inherited: true, inheritedFrom: 'group'}}));
+                const groupTagNames = new Set(groupTags.map(t => t.name));
+                baseTags = [
+                    ...groupTags,
+                    ...baseTags.filter(t => !groupTagNames.has(t.name))
+                ];
+            }}
+
+            // Override with clip tags
             const clipTags = clipMeta.tags || [];
             const clipTagNames = new Set(clipTags.map(t => t.name));
             const mergedTags = [
                 ...clipTags,
-                ...videoTags.filter(t => !clipTagNames.has(t.name))
+                ...baseTags.filter(t => !clipTagNames.has(t.name))
             ];
 
-            // Year: clip overrides video
+            // Year: clip overrides group overrides video
             let year = clipMeta.year || null;
             let yearInherited = false;
+            let yearInheritedFrom = null;
+            if (!year && groupMeta.year) {{
+                year = groupMeta.year;
+                yearInherited = true;
+                yearInheritedFrom = 'group';
+            }}
             if (!year && videoMeta.year) {{
                 year = videoMeta.year;
                 yearInherited = true;
+                yearInheritedFrom = 'video';
             }}
 
-            return {{ tags: mergedTags, year, yearInherited }};
+            return {{ tags: mergedTags, year, yearInherited, yearInheritedFrom, group }};
         }}
 
         // Render tags and year for a clip
@@ -528,32 +640,368 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
 
         function showDescriptionEditor(container) {{
             const source = container.dataset.source;
+            const groupId = container.dataset.groupId || null;
+            const isGroup = !!groupId;
+
             const edits = userEdits[source] || {{}};
-            const desc = edits.video?.description || '';
+            let desc;
+            if (isGroup) {{
+                const group = (edits.groups || []).find(g => g.id === groupId);
+                desc = group?.description || '';
+            }} else {{
+                desc = edits.video?.description || '';
+            }}
+
             container.classList.add('editing');
             container.innerHTML = `<textarea placeholder="Add a description...">${{desc}}</textarea>`;
             const textarea = container.querySelector('textarea');
             textarea.focus();
+
+            const renderFn = isGroup ? renderGroupDescription : renderSourceDescription;
+
             textarea.addEventListener('blur', async () => {{
                 const newDesc = textarea.value.trim();
-                const meta = getCurrentMeta(source, null);
+                const meta = getCurrentMeta(source, null, groupId);
                 meta.description = newDesc || null;
-                await saveEdits(source, null, meta);
+                await saveEdits(source, null, meta, groupId);
                 container.classList.remove('editing');
-                renderSourceDescription(container);
+                renderFn(container);
             }});
             textarea.addEventListener('keydown', (e) => {{
                 if (e.key === 'Escape') {{
                     container.classList.remove('editing');
-                    renderSourceDescription(container);
+                    renderFn(container);
                 }}
             }});
+        }}
+
+        // Group creation/edit state
+        // mode: 'create' | 'edit-range'
+        let groupMode = null; // null | {{source, startClip, startCard, mode, groupId}}
+
+        function startGroupMode(source) {{
+            groupMode = {{ source, startClip: null, startCard: null, mode: 'create' }};
+            document.body.classList.add('group-mode');
+            // Update button text
+            const btn = document.querySelector(`.start-group-btn[data-source="${{source}}"]`);
+            if (btn) btn.textContent = 'Select first clip...';
+        }}
+
+        function startEditRangeMode(source, groupId) {{
+            groupMode = {{ source, startClip: null, startCard: null, mode: 'edit-range', groupId }};
+            document.body.classList.add('group-mode');
+            // Update edit range button text
+            const btn = document.querySelector(`.edit-range-btn[data-source="${{source}}"][data-group-id="${{groupId}}"]`);
+            if (btn) btn.textContent = 'Select first clip...';
+        }}
+
+        function cancelGroupMode() {{
+            // Reset visual state on cards
+            groupMode?.startCard?.classList.remove('group-start');
+            document.querySelectorAll('.video-card.group-pending').forEach(c => c.classList.remove('group-pending'));
+
+            // Reset button texts (must happen before clearing groupMode)
+            if (groupMode?.mode === 'edit-range' && groupMode?.groupId) {{
+                const btn = document.querySelector(`.edit-range-btn[data-group-id="${{groupMode.groupId}}"]`);
+                if (btn) btn.textContent = 'edit range';
+            }}
+            document.querySelectorAll('.start-group-btn').forEach(btn => btn.textContent = '+group');
+
+            // Clear state
+            groupMode = null;
+            document.body.classList.remove('group-mode');
+        }}
+
+        function handleGroupModeClick(card) {{
+            const source = card.dataset.source;
+            const clipName = card.dataset.clip;
+
+            // Must be same source
+            if (source !== groupMode.source) {{
+                alert('Please select clips from the same video source');
+                return;
+            }}
+
+            if (!groupMode.startClip) {{
+                // First clip selected
+                groupMode.startClip = clipName;
+                groupMode.startCard = card;
+                card.classList.add('group-start');
+                // Update appropriate button text
+                if (groupMode.mode === 'edit-range') {{
+                    const btn = document.querySelector(`.edit-range-btn[data-group-id="${{groupMode.groupId}}"]`);
+                    if (btn) btn.textContent = 'Select last clip...';
+                }} else {{
+                    const btn = document.querySelector(`.start-group-btn[data-source="${{source}}"]`);
+                    if (btn) btn.textContent = 'Select last clip...';
+                }}
+            }} else {{
+                // Second clip selected - validate range
+                const startIdx = getClipIndex(groupMode.startClip);
+                const endIdx = getClipIndex(clipName);
+                const actualStart = Math.min(startIdx, endIdx);
+                const actualEnd = Math.max(startIdx, endIdx);
+
+                // Check for overlapping groups (skip the group being edited)
+                const edits = userEdits[source] || {{}};
+                const existingGroups = edits.groups || [];
+                for (const g of existingGroups) {{
+                    if (groupMode.mode === 'edit-range' && g.id === groupMode.groupId) continue;
+                    const gStart = getClipIndex(g.start_clip);
+                    const gEnd = getClipIndex(g.end_clip);
+                    if (!(actualEnd < gStart || actualStart > gEnd)) {{
+                        alert('This range overlaps with an existing group. Delete the existing group first.');
+                        return;
+                    }}
+                }}
+
+                if (groupMode.mode === 'edit-range') {{
+                    // Update existing group range
+                    updateGroupRange(source, groupMode.groupId, groupMode.startClip, clipName);
+                }} else {{
+                    // Create new group
+                    createGroup(source, groupMode.startClip, clipName);
+                }}
+                cancelGroupMode();
+            }}
+        }}
+
+        async function updateGroupRange(source, groupId, startClip, endClip) {{
+            const startIdx = getClipIndex(startClip);
+            const endIdx = getClipIndex(endClip);
+            const actualStartClip = startIdx <= endIdx ? startClip : endClip;
+            const actualEndClip = startIdx <= endIdx ? endClip : startClip;
+
+            const edits = userEdits[source] || {{}};
+            const group = (edits.groups || []).find(g => g.id === groupId);
+            if (group) {{
+                group.start_clip = actualStartClip;
+                group.end_clip = actualEndClip;
+                await saveEditsRaw(source, edits);
+                renderGroupsForSource(source);
+            }}
+        }}
+
+        async function createGroup(source, startClip, endClip) {{
+            const startIdx = getClipIndex(startClip);
+            const endIdx = getClipIndex(endClip);
+            // Ensure start <= end
+            const actualStartClip = startIdx <= endIdx ? startClip : endClip;
+            const actualEndClip = startIdx <= endIdx ? endClip : startClip;
+
+            const edits = userEdits[source] || {{ video: {{ tags: [], year: null, description: null }}, groups: [], clips: {{}} }};
+            if (!edits.groups) edits.groups = [];
+
+            const groupId = 'group_' + edits.groups.length;
+            edits.groups.push({{
+                id: groupId,
+                start_clip: actualStartClip,
+                end_clip: actualEndClip,
+                tags: [],
+                year: null,
+                description: null
+            }});
+
+            await saveEditsRaw(source, edits);
+            renderGroupsForSource(source);
+        }}
+
+        // Render group tags/year
+        function renderGroupTagsYear(container) {{
+            const source = container.dataset.source;
+            const groupId = container.dataset.groupId;
+            const edits = userEdits[source] || {{}};
+            const group = (edits.groups || []).find(g => g.id === groupId);
+            if (!group) return;
+
+            const tags = group.tags || [];
+            const year = group.year;
+
+            let html = '';
+            for (let i = 0; i < tags.length; i++) {{
+                const tag = tags[i];
+                const title = `${{tag.confidence}} confidence. Click to edit.`;
+                html += `<span class="tag confidence-${{tag.confidence}} editable" title="${{title}}" data-idx="${{i}}" data-name="${{tag.name}}" data-conf="${{tag.confidence}}">${{tag.name}}</span>`;
+            }}
+            if (year) {{
+                const title = `${{year.confidence}} confidence. Click to edit.`;
+                html += `<span class="year-badge confidence-${{year.confidence}} editable" title="${{title}}" data-year="${{year.year}}" data-conf="${{year.confidence}}">${{year.year}}</span>`;
+            }}
+            // Add buttons
+            html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
+            if (!year) {{
+                html += `<button class="add-btn" data-action="add-year">+year</button>`;
+            }}
+            container.innerHTML = html;
+        }}
+
+        // Render group description
+        function renderGroupDescription(container) {{
+            const source = container.dataset.source;
+            const groupId = container.dataset.groupId;
+            const edits = userEdits[source] || {{}};
+            const group = (edits.groups || []).find(g => g.id === groupId);
+            const desc = group?.description || '';
+            container.textContent = desc;
+            // Hide +description button if description exists
+            const addBtn = container.closest('.clip-group')?.querySelector('.add-group-desc-btn');
+            if (addBtn) addBtn.style.display = desc ? 'none' : '';
+        }}
+
+        // Render all groups for a source (interleaved with ungrouped clips in natural order)
+        function renderGroupsForSource(source) {{
+            const sourceGroup = document.querySelector(`.source-group[data-source="${{source}}"]`);
+            if (!sourceGroup) return;
+
+            // Collect all cards from both main gallery and existing clip-groups
+            const allCards = Array.from(sourceGroup.querySelectorAll('.video-card'));
+
+            // Remove existing clip-group divs
+            sourceGroup.querySelectorAll('.clip-group').forEach(el => el.remove());
+
+            const edits = userEdits[source] || {{}};
+            const groups = edits.groups || [];
+            const mainGallery = sourceGroup.querySelector(':scope > .gallery');
+
+            // Sort cards by clip index
+            allCards.sort((a, b) => getClipIndex(a.dataset.clip) - getClipIndex(b.dataset.clip));
+
+            // Sort groups by start index
+            const sortedGroups = [...groups].sort((a, b) => getClipIndex(a.start_clip) - getClipIndex(b.start_clip));
+
+            // Clear main gallery
+            mainGallery.innerHTML = '';
+
+            // Container to hold all content (groups and ungrouped galleries)
+            const contentContainer = document.createDocumentFragment();
+
+            // Track which cards have been placed
+            const placedCards = new Set();
+
+            // Build sections in order
+            let currentUngrouped = [];
+
+            for (const card of allCards) {{
+                const clipIdx = getClipIndex(card.dataset.clip);
+
+                // Check if this card belongs to a group
+                const group = sortedGroups.find(g => {{
+                    const startIdx = getClipIndex(g.start_clip);
+                    const endIdx = getClipIndex(g.end_clip);
+                    return clipIdx >= startIdx && clipIdx <= endIdx;
+                }});
+
+                if (group) {{
+                    // Flush any pending ungrouped cards first
+                    if (currentUngrouped.length > 0) {{
+                        const ungroupedGallery = document.createElement('div');
+                        ungroupedGallery.className = 'gallery';
+                        currentUngrouped.forEach(c => ungroupedGallery.appendChild(c));
+                        contentContainer.appendChild(ungroupedGallery);
+                        currentUngrouped = [];
+                    }}
+
+                    // Check if we already created this group
+                    if (!placedCards.has(group.id)) {{
+                        placedCards.add(group.id);
+
+                        // Get all cards for this group
+                        const startIdx = getClipIndex(group.start_clip);
+                        const endIdx = getClipIndex(group.end_clip);
+                        const groupCards = allCards.filter(c => {{
+                            const idx = getClipIndex(c.dataset.clip);
+                            return idx >= startIdx && idx <= endIdx;
+                        }});
+
+                        // Create group container
+                        const groupDiv = document.createElement('div');
+                        groupDiv.className = 'clip-group';
+                        groupDiv.dataset.source = source;
+                        groupDiv.dataset.groupId = group.id;
+
+                        groupDiv.innerHTML = `
+                            <div class="clip-group-header">
+                                <span class="toggle-icon" onclick="this.closest('.clip-group').classList.toggle('collapsed')">▼</span>
+                                <span class="group-name">${{group.start_clip}} - ${{group.end_clip}}</span>
+                                <div class="group-tags-year" data-source="${{source}}" data-group-id="${{group.id}}"></div>
+                                <span class="add-group-desc-btn add-desc-btn" data-source="${{source}}" data-group-id="${{group.id}}">+description</span>
+                                <div class="group-actions">
+                                    <span class="edit-range-btn" data-source="${{source}}" data-group-id="${{group.id}}">edit range</span>
+                                    <span class="delete-group-btn" data-source="${{source}}" data-group-id="${{group.id}}">×</span>
+                                </div>
+                            </div>
+                            <div class="group-description" data-source="${{source}}" data-group-id="${{group.id}}"></div>
+                            <div class="gallery"></div>
+                        `;
+
+                        // Move cards into group
+                        const groupGallery = groupDiv.querySelector('.gallery');
+                        groupCards.forEach(c => {{
+                            groupGallery.appendChild(c);
+                            placedCards.add(c.dataset.clip);
+                        }});
+
+                        contentContainer.appendChild(groupDiv);
+
+                        // Render group tags/year/description
+                        renderGroupTagsYear(groupDiv.querySelector('.group-tags-year'));
+                        renderGroupDescription(groupDiv.querySelector('.group-description'));
+                    }}
+                }} else {{
+                    // Ungrouped card
+                    if (!placedCards.has(card.dataset.clip)) {{
+                        currentUngrouped.push(card);
+                        placedCards.add(card.dataset.clip);
+                    }}
+                }}
+            }}
+
+            // Flush any remaining ungrouped cards
+            if (currentUngrouped.length > 0) {{
+                const ungroupedGallery = document.createElement('div');
+                ungroupedGallery.className = 'gallery';
+                currentUngrouped.forEach(c => ungroupedGallery.appendChild(c));
+                contentContainer.appendChild(ungroupedGallery);
+            }}
+
+            // Replace main gallery with new content
+            mainGallery.replaceWith(contentContainer);
+
+            // Re-render all clip tags (inheritance may have changed)
+            sourceGroup.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
+        }}
+
+        async function deleteGroup(source, groupId) {{
+            const edits = userEdits[source] || {{}};
+            edits.groups = (edits.groups || []).filter(g => g.id !== groupId);
+            await saveEditsRaw(source, edits);
+            renderGroupsForSource(source);
+        }}
+
+        // Raw save that doesn't separate video/clip
+        async function saveEditsRaw(source, edits) {{
+            try {{
+                const resp = await fetch(`/api/edits/${{source}}`, {{
+                    method: 'PUT',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(edits)
+                }});
+                if (resp.ok) {{
+                    userEdits[source] = edits;
+                    renderTagFilters();
+                }}
+            }} catch (e) {{
+                console.error('Save failed:', e);
+            }}
         }}
 
         // Render all tags/year
         document.querySelectorAll('.source-tags-year').forEach(renderSourceTagsYear);
         document.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
         document.querySelectorAll('.source-description').forEach(renderSourceDescription);
+
+        // Render all groups
+        groups.forEach(g => renderGroupsForSource(g.dataset.source));
 
         // Build search data including tags
         const cardData = Array.from(cards).map((card, i) => {{
@@ -588,6 +1036,12 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
 
         function playVideo(card) {
+            // In group mode, select clip instead of playing
+            if (groupMode) {
+                handleGroupModeClick(card);
+                return;
+            }
+
             currentCard = card;
             nextCard = getNextCardInGroup(card);
 
@@ -615,10 +1069,24 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
 
         function getNextCardInGroup(card) {
-            const group = card.closest('.source-group');
-            const cards = Array.from(group.querySelectorAll('.video-card:not(.hidden)'));
-            const idx = cards.indexOf(card);
-            return cards[idx + 1] || null;
+            // Check if card is in a clip-group (then only play within that group)
+            const clipGroup = card.closest('.clip-group');
+            if (clipGroup) {
+                const groupCards = Array.from(clipGroup.querySelectorAll('.video-card:not(.hidden)'));
+                const idx = groupCards.indexOf(card);
+                return groupCards[idx + 1] || null;  // Stop at group boundary
+            }
+
+            // Card is ungrouped - play through ungrouped clips in the main gallery
+            const sourceGroup = card.closest('.source-group');
+            const mainGallery = sourceGroup.querySelector(':scope > .gallery');
+            if (mainGallery) {
+                const ungroupedCards = Array.from(mainGallery.querySelectorAll('.video-card:not(.hidden)'));
+                const idx = ungroupedCards.indexOf(card);
+                return ungroupedCards[idx + 1] || null;
+            }
+
+            return null;
         }
 
         function handleEnded() {
@@ -741,7 +1209,12 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             groups.forEach(g => g.classList.toggle('collapsed', groupsCollapsed));
         });
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal({target: modal}); });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                if (groupMode) cancelGroupMode();
+                else closeModal({target: modal});
+            }
+        });
 
         // Inline editing functionality
         const popup = document.getElementById('inlinePopup');
@@ -779,8 +1252,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             return `<span class="conf-label">Confidence:</span>${btns}`;
         }
 
-        function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf) {
-            popupContext = { source, clipName, type: 'edit-tag', tagIdx };
+        function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf, groupId = null) {
+            popupContext = { source, clipName, groupId, type: 'edit-tag', tagIdx };
             popup.innerHTML = `
                 <div class="popup-row">
                     <input type="text" class="tag-name-input" value="${tagName}">
@@ -795,8 +1268,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             popup.querySelector('.tag-name-input').focus();
         }
 
-        function showYearPopup(element, source, clipName, year, conf) {
-            popupContext = { source, clipName, type: 'edit-year' };
+        function showYearPopup(element, source, clipName, year, conf, groupId = null) {
+            popupContext = { source, clipName, groupId, type: 'edit-year' };
             popup.innerHTML = `
                 <div class="popup-row">
                     <input type="number" class="year-input" value="${year}" placeholder="Year">
@@ -811,8 +1284,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             popup.querySelector('.year-input').focus();
         }
 
-        function showAddTagPopup(element, source, clipName) {
-            popupContext = { source, clipName, type: 'add-tag' };
+        function showAddTagPopup(element, source, clipName, groupId = null) {
+            popupContext = { source, clipName, groupId, type: 'add-tag' };
             popup.innerHTML = `
                 <div class="popup-row">
                     <input type="text" class="tag-name-input" placeholder="Tag name">
@@ -826,8 +1299,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             popup.querySelector('.tag-name-input').focus();
         }
 
-        function showAddYearPopup(element, source, clipName) {
-            popupContext = { source, clipName, type: 'add-year' };
+        function showAddYearPopup(element, source, clipName, groupId = null) {
+            popupContext = { source, clipName, groupId, type: 'add-year' };
             popup.innerHTML = `
                 <div class="popup-row">
                     <input type="number" class="year-input" placeholder="Year">
@@ -841,9 +1314,17 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             popup.querySelector('.year-input').focus();
         }
 
-        async function saveEdits(source, clipName, newMeta) {
-            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, clips: {} };
-            if (clipName) {
+        async function saveEdits(source, clipName, newMeta, groupId = null) {
+            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, groups: [], clips: {} };
+            if (groupId) {
+                // Update group metadata
+                const group = (edits.groups || []).find(g => g.id === groupId);
+                if (group) {
+                    group.tags = newMeta.tags || [];
+                    group.year = newMeta.year || null;
+                    if (newMeta.description !== undefined) group.description = newMeta.description;
+                }
+            } else if (clipName) {
                 edits.clips[clipName] = newMeta;
             } else {
                 edits.video = newMeta;
@@ -858,7 +1339,12 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 if (resp.ok) {
                     userEdits[source] = edits;
                     // Re-render affected elements
-                    if (clipName) {
+                    if (groupId) {
+                        const container = document.querySelector(`.group-tags-year[data-source="${source}"][data-group-id="${groupId}"]`);
+                        if (container) renderGroupTagsYear(container);
+                        // Update all clips in this source (inheritance may have changed)
+                        document.querySelectorAll(`.tags-year[data-source="${source}"]`).forEach(renderTagsYear);
+                    } else if (clipName) {
                         const container = document.querySelector(`.tags-year[data-source="${source}"][data-clip="${clipName}"]`);
                         if (container) renderTagsYear(container);
                     } else {
@@ -875,8 +1361,12 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             }
         }
 
-        function getCurrentMeta(source, clipName) {
-            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, clips: {} };
+        function getCurrentMeta(source, clipName, groupId = null) {
+            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, groups: [], clips: {} };
+            if (groupId) {
+                const group = (edits.groups || []).find(g => g.id === groupId);
+                return group ? { tags: group.tags || [], year: group.year, description: group.description } : { tags: [], year: null };
+            }
             if (clipName) {
                 return edits.clips[clipName] || { tags: [], year: null };
             }
@@ -888,10 +1378,79 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             const tag = e.target.closest('.tag.editable');
             const yearBadge = e.target.closest('.year-badge.editable');
             const addBtn = e.target.closest('.add-btn');
-            const addDescBtn = e.target.closest('.add-desc-btn');
+            const addDescBtn = e.target.closest('.add-desc-btn:not(.add-group-desc-btn)');
+            const addGroupDescBtn = e.target.closest('.add-group-desc-btn');
             const sourceDesc = e.target.closest('.source-description:not(.editing)');
+            const groupDesc = e.target.closest('.group-description:not(.editing)');
             const confBtn = e.target.closest('.conf-btn');
             const deleteBtn = e.target.closest('.delete-btn');
+            const startGroupBtn = e.target.closest('.start-group-btn');
+            const deleteGroupBtn = e.target.closest('.delete-group-btn');
+            const editRangeBtn = e.target.closest('.edit-range-btn');
+            const videoCard = e.target.closest('.video-card');
+
+            // Handle group mode clicks (intercept all clicks on video cards)
+            if (groupMode && videoCard) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleGroupModeClick(videoCard);
+                return;
+            }
+
+            // Handle thumb-grid clicks to play video
+            const thumbGrid = e.target.closest('.thumb-grid');
+            if (thumbGrid && videoCard) {
+                playVideo(videoCard);
+                return;
+            }
+
+            // Handle start group button
+            if (startGroupBtn) {
+                const source = startGroupBtn.dataset.source;
+                if (groupMode) {
+                    cancelGroupMode();
+                } else {
+                    startGroupMode(source);
+                }
+                return;
+            }
+
+            // Handle delete group button
+            if (deleteGroupBtn) {
+                const source = deleteGroupBtn.dataset.source;
+                const groupId = deleteGroupBtn.dataset.groupId;
+                if (confirm('Delete this group? Clips will remain but group metadata will be lost.')) {
+                    await deleteGroup(source, groupId);
+                }
+                return;
+            }
+
+            // Handle edit range button
+            if (editRangeBtn) {
+                const source = editRangeBtn.dataset.source;
+                const groupId = editRangeBtn.dataset.groupId;
+                if (groupMode) {
+                    cancelGroupMode();
+                } else {
+                    startEditRangeMode(source, groupId);
+                }
+                return;
+            }
+
+            // Handle +description button for groups
+            if (addGroupDescBtn) {
+                const source = addGroupDescBtn.dataset.source;
+                const groupId = addGroupDescBtn.dataset.groupId;
+                const descContainer = document.querySelector(`.group-description[data-source="${source}"][data-group-id="${groupId}"]`);
+                if (descContainer) showDescriptionEditor(descContainer);
+                return;
+            }
+
+            // Handle click on group description to edit
+            if (groupDesc && document.body.classList.contains('api-available')) {
+                showDescriptionEditor(groupDesc);
+                return;
+            }
 
             // Handle +description button
             if (addDescBtn) {
@@ -914,7 +1473,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                     await handlePopupSave();
                     closePopup();
                 }
-                return;
+                // Don't return here - allow other handlers to process
             }
 
             // Handle confidence button in popup
@@ -930,8 +1489,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
 
             // Handle delete button in popup
             if (deleteBtn && popupContext) {
-                const { source, clipName, type, tagIdx } = popupContext;
-                const meta = getCurrentMeta(source, clipName);
+                const { source, clipName, groupId, type, tagIdx } = popupContext;
+                const meta = getCurrentMeta(source, clipName, groupId);
 
                 if (type === 'edit-tag') {
                     meta.tags = meta.tags.filter((_, i) => i !== tagIdx);
@@ -939,44 +1498,47 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                     meta.year = null;
                 }
 
-                await saveEdits(source, clipName, meta);
+                await saveEdits(source, clipName, meta, groupId);
                 closePopup();
                 return;
             }
 
             // Handle add buttons
             if (addBtn) {
-                const container = addBtn.closest('.tags-year, .source-tags-year');
+                const container = addBtn.closest('.tags-year, .source-tags-year, .group-tags-year');
                 const source = container.dataset.source;
                 const clipName = container.dataset.clip || null;
+                const groupId = container.dataset.groupId || null;
                 const action = addBtn.dataset.action;
 
                 closePopup();
                 if (action === 'add-tag') {
-                    showAddTagPopup(addBtn, source, clipName);
+                    showAddTagPopup(addBtn, source, clipName, groupId);
                 } else if (action === 'add-year') {
-                    showAddYearPopup(addBtn, source, clipName);
+                    showAddYearPopup(addBtn, source, clipName, groupId);
                 }
                 return;
             }
 
             // Handle tag click
             if (tag && tag.dataset.inherited !== 'true') {
-                const container = tag.closest('.tags-year, .source-tags-year');
+                const container = tag.closest('.tags-year, .source-tags-year, .group-tags-year');
                 const source = container.dataset.source;
                 const clipName = container.dataset.clip || null;
+                const groupId = container.dataset.groupId || null;
                 closePopup();
-                showTagPopup(tag, source, clipName, parseInt(tag.dataset.idx), tag.dataset.name, tag.dataset.conf);
+                showTagPopup(tag, source, clipName, parseInt(tag.dataset.idx), tag.dataset.name, tag.dataset.conf, groupId);
                 return;
             }
 
             // Handle year badge click
             if (yearBadge && yearBadge.dataset.inherited !== 'true') {
-                const container = yearBadge.closest('.tags-year, .source-tags-year');
+                const container = yearBadge.closest('.tags-year, .source-tags-year, .group-tags-year');
                 const source = container.dataset.source;
                 const clipName = container.dataset.clip || null;
+                const groupId = container.dataset.groupId || null;
                 closePopup();
-                showYearPopup(yearBadge, source, clipName, yearBadge.dataset.year, yearBadge.dataset.conf);
+                showYearPopup(yearBadge, source, clipName, yearBadge.dataset.year, yearBadge.dataset.conf, groupId);
                 return;
             }
         });
@@ -984,8 +1546,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         async function handlePopupSave() {
             if (!popupContext) return;
 
-            const { source, clipName, type, tagIdx } = popupContext;
-            const meta = getCurrentMeta(source, clipName);
+            const { source, clipName, groupId, type, tagIdx } = popupContext;
+            const meta = getCurrentMeta(source, clipName, groupId);
             const activeConf = popup.querySelector('.conf-btn.active')?.dataset.conf || 'high';
 
             if (type === 'edit-tag') {
@@ -993,14 +1555,14 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 const newName = nameInput?.value.trim();
                 if (newName && meta.tags[tagIdx]) {
                     meta.tags[tagIdx] = { name: newName, confidence: activeConf };
-                    await saveEdits(source, clipName, meta);
+                    await saveEdits(source, clipName, meta, groupId);
                 }
             } else if (type === 'edit-year') {
                 const yearInput = popup.querySelector('.year-input');
                 const newYear = parseInt(yearInput?.value);
                 if (newYear) {
                     meta.year = { year: newYear, confidence: activeConf };
-                    await saveEdits(source, clipName, meta);
+                    await saveEdits(source, clipName, meta, groupId);
                 }
             } else if (type === 'add-tag') {
                 const nameInput = popup.querySelector('.tag-name-input');
@@ -1008,14 +1570,14 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 if (newName) {
                     meta.tags = meta.tags || [];
                     meta.tags.push({ name: newName, confidence: activeConf });
-                    await saveEdits(source, clipName, meta);
+                    await saveEdits(source, clipName, meta, groupId);
                 }
             } else if (type === 'add-year') {
                 const yearInput = popup.querySelector('.year-input');
                 const newYear = parseInt(yearInput?.value);
                 if (newYear) {
                     meta.year = { year: newYear, confidence: activeConf };
-                    await saveEdits(source, clipName, meta);
+                    await saveEdits(source, clipName, meta, groupId);
                 }
             }
         }
@@ -1044,6 +1606,11 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 const edits = userEdits[source];
                 const videoTags = edits.video?.tags || [];
                 videoTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+                // Include group tags
+                const groups = edits.groups || [];
+                groups.forEach(g => {
+                    (g.tags || []).forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+                });
                 for (const clipName in edits.clips || {}) {
                     const clipTags = edits.clips[clipName]?.tags || [];
                     clipTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));

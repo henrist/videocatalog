@@ -60,9 +60,20 @@ class EditableMetadata(BaseModel):
     description: str | None = None
 
 
+class ClipGroup(BaseModel):
+    """A group of successive clips with shared metadata."""
+    id: str
+    start_clip: str
+    end_clip: str
+    tags: list[TagInfo] = Field(default_factory=list)
+    year: YearInfo | None = None
+    description: str | None = None
+
+
 class UserEditsFile(BaseModel):
     """User edits for a video and its clips."""
     video: EditableMetadata = Field(default_factory=EditableMetadata)
+    groups: list[ClipGroup] = Field(default_factory=list)
     clips: dict[str, EditableMetadata] = Field(default_factory=dict)
 
     def save(self, path: Path) -> None:
