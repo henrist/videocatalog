@@ -360,6 +360,7 @@ def split_video(
             "-ss", str(start),
             "-i", str(video_path),
             "-t", str(end - start),
+            "-vf", "yadif,hqdn3d",  # Deinterlace and denoise
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "22",
@@ -386,6 +387,7 @@ def convert_to_mp4(video_path: Path) -> Path:
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),
+        "-vf", "yadif,hqdn3d",  # Deinterlace and denoise
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "22",
