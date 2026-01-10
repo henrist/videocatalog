@@ -22,7 +22,7 @@ uv run videocatalog video.avi --output-dir output
 open output/gallery.html
 
 # View and edit (start server, then open browser)
-uv run videocatalog --output-dir output --serve
+uv run videocatalog --output-dir output --serve --regenerate
 open http://localhost:8000
 ```
 
@@ -36,6 +36,7 @@ open http://localhost:8000
 - `--gallery-only` - Reprocess clips and regenerate gallery
 - `--html-only` - Only regenerate gallery HTML (fast)
 - `--serve` - Start web server for editing tags/year
+- `--regenerate` - Regenerate gallery HTML on each page load
 - `--host` / `--port` - Server bind options
 
 ## Docker
