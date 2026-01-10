@@ -244,6 +244,37 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         .add-btn:hover { color: #aaa; }
         body.api-available .video-card:hover .add-btn,
         body.api-available .source-header:hover .add-btn { display: inline-block; }
+        .source-description {
+            font-size: 13px;
+            color: #aaa;
+            margin-top: 8px;
+            padding: 0 12px 12px;
+            white-space: pre-wrap;
+        }
+        .source-description:empty { display: none; }
+        .source-description.editing {
+            display: block;
+        }
+        .source-description textarea {
+            width: 100%;
+            min-height: 60px;
+            padding: 8px;
+            font-size: 13px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #fff;
+            resize: vertical;
+        }
+        .add-desc-btn {
+            display: none;
+            font-size: 11px;
+            color: #666;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+        .add-desc-btn:hover { color: #aaa; }
+        body.api-available .source-header:hover .add-desc-btn { display: inline; }
         .inline-popup {
             display: none;
             position: fixed;
@@ -340,8 +371,10 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             <span class="toggle-icon" onclick="toggleGroup(this.parentElement)">▼</span>
             <h2 onclick="toggleGroup(this.parentElement)">{source_name}</h2>
             <div class="source-tags-year" data-source="{source_name}"></div>
+            <span class="add-desc-btn" data-source="{source_name}">+description</span>
             <span class="clip-count" onclick="toggleGroup(this.parentElement)">{len(clips)} clips</span>
         </div>
+        <div class="source-description" data-source="{source_name}"></div>
         <div class="gallery">
 '''
         for clip in clips:
@@ -468,9 +501,45 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             container.innerHTML = html;
         }}
 
+        // Render source descriptions
+        function renderSourceDescription(container) {{
+            const source = container.dataset.source;
+            const edits = userEdits[source] || {{}};
+            const desc = edits.video?.description || '';
+            container.textContent = desc;
+            // Hide +description button if description exists
+            const addBtn = document.querySelector(`.add-desc-btn[data-source="${{source}}"]`);
+            if (addBtn) addBtn.style.display = desc ? 'none' : '';
+        }}
+
+        function showDescriptionEditor(container) {{
+            const source = container.dataset.source;
+            const edits = userEdits[source] || {{}};
+            const desc = edits.video?.description || '';
+            container.classList.add('editing');
+            container.innerHTML = `<textarea placeholder="Add a description...">${{desc}}</textarea>`;
+            const textarea = container.querySelector('textarea');
+            textarea.focus();
+            textarea.addEventListener('blur', async () => {{
+                const newDesc = textarea.value.trim();
+                const meta = getCurrentMeta(source, null);
+                meta.description = newDesc || null;
+                await saveEdits(source, null, meta);
+                container.classList.remove('editing');
+                renderSourceDescription(container);
+            }});
+            textarea.addEventListener('keydown', (e) => {{
+                if (e.key === 'Escape') {{
+                    container.classList.remove('editing');
+                    renderSourceDescription(container);
+                }}
+            }});
+        }}
+
         // Render all tags/year
         document.querySelectorAll('.source-tags-year').forEach(renderSourceTagsYear);
         document.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
+        document.querySelectorAll('.source-description').forEach(renderSourceDescription);
 
         // Build search data including tags
         const cardData = Array.from(cards).map((card, i) => {{
@@ -688,7 +757,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
 
         async function saveEdits(source, clipName, newMeta) {
-            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
+            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, clips: {} };
             if (clipName) {
                 edits.clips[clipName] = newMeta;
             } else {
@@ -722,11 +791,11 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
 
         function getCurrentMeta(source, clipName) {
-            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
+            const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, clips: {} };
             if (clipName) {
                 return edits.clips[clipName] || { tags: [], year: null };
             }
-            return edits.video || { tags: [], year: null };
+            return edits.video || { tags: [], year: null, description: null };
         }
 
         // Handle clicks on tags-year containers (event delegation)
@@ -734,8 +803,24 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             const tag = e.target.closest('.tag.editable');
             const yearBadge = e.target.closest('.year-badge.editable');
             const addBtn = e.target.closest('.add-btn');
+            const addDescBtn = e.target.closest('.add-desc-btn');
+            const sourceDesc = e.target.closest('.source-description:not(.editing)');
             const confBtn = e.target.closest('.conf-btn');
             const deleteBtn = e.target.closest('.delete-btn');
+
+            // Handle +description button
+            if (addDescBtn) {
+                const source = addDescBtn.dataset.source;
+                const descContainer = document.querySelector(`.source-description[data-source="${source}"]`);
+                if (descContainer) showDescriptionEditor(descContainer);
+                return;
+            }
+
+            // Handle click on existing description to edit
+            if (sourceDesc && document.body.classList.contains('api-available')) {
+                showDescriptionEditor(sourceDesc);
+                return;
+            }
 
             // Close popup if clicking outside
             if (!e.target.closest('.inline-popup') && !tag && !yearBadge && !addBtn) {

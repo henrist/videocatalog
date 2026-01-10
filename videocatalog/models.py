@@ -57,6 +57,7 @@ class EditableMetadata(BaseModel):
     """User-editable metadata for a video or clip."""
     tags: list[TagInfo] = Field(default_factory=list)
     year: YearInfo | None = None
+    description: str | None = None
 
 
 class UserEditsFile(BaseModel):
