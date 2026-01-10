@@ -2,9 +2,10 @@
 name = "videocatalog"
 version = "0.1.0"
 description = "Split videos at recording boundaries and generate searchable gallery"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "faster-whisper>=1.0.0",
+    "av==16.0.1",  # 16.1.0 lacks Linux py3.12 wheels
 ]
 
 [project.scripts]

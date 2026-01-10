@@ -1,10 +1,10 @@
 FROM nvidia/cuda:12.1-cudnn8-runtime-ubuntu22.04
 ENV PYTHONUNBUFFERED=1
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-RUN apt-get update && apt-get install -y python3.11 python3.11-venv ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y python3.12 python3.12-venv ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project --python python3.11
+RUN uv sync --frozen --no-dev --no-install-project --python python3.12
 COPY videocatalog.py .
-RUN uv sync --frozen --no-dev --python python3.11
+RUN uv sync --frozen --no-dev --python python3.12
 ENTRYPOINT ["uv", "run", "videocatalog"]
