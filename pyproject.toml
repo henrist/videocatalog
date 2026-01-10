@@ -1,0 +1,15 @@
+[project]
+name = "videocatalog"
+version = "0.1.0"
+description = "Split videos at recording boundaries and generate searchable gallery"
+requires-python = ">=3.12"
+dependencies = [
+    "faster-whisper>=1.0.0",
+]
+
+[project.scripts]
+videocatalog = "videocatalog:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
