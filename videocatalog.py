@@ -199,10 +199,13 @@ def detect_audio_changes(video_path: Path, duration: float) -> dict[int, float]:
     rms = {}
     if rms_file.exists():
         content = rms_file.read_text()
-        pattern = r"pts_time:(\d+)\s*\n.*?RMS_level=([-\d.]+)"
+        pattern = r"pts_time:(\d+)\s*\n.*?RMS_level=([-\d.inf]+)"
         for match in re.finditer(pattern, content):
             t = int(match.group(1))
-            level = float(match.group(2))
+            level_str = match.group(2)
+            if level_str == '-inf' or level_str == '-':
+                continue  # Skip silent sections
+            level = float(level_str)
             rms[t] = level
 
     # Calculate step changes
