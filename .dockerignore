@@ -1,0 +1,9 @@
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+output/
+cache/
