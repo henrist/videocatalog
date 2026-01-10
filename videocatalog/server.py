@@ -74,7 +74,7 @@ def create_app(directory: Path) -> FastAPI:
     return app
 
 
-def run_server(directory: Path, host: str = "0.0.0.0", port: int = 8000):
+def run_server(directory: Path, host: str = "127.0.0.1", port: int = 8000):
     """Run the server."""
     import uvicorn
 

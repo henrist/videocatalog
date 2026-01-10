@@ -58,8 +58,8 @@ serve:
 	@mkdir -p $(OUTPUT)
 	docker run --rm -it \
 		-v "$(CURDIR)/$(OUTPUT):/data/output" \
-		-p $(PORT):$(PORT) \
-		$(IMAGE) --output-dir /data/output --serve --port $(PORT)
+		-p 127.0.0.1:$(PORT):$(PORT) \
+		$(IMAGE) --output-dir /data/output --serve --host 0.0.0.0 --port $(PORT)
 
 dry-run:
 ifndef INPUT

@@ -45,6 +45,8 @@ def main():
                         help="Force reprocessing even if already processed")
     parser.add_argument("--serve", action="store_true",
                         help="Start web server for viewing and editing")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Host for web server (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000,
                         help="Port for web server (default: 8000)")
 
@@ -70,7 +72,7 @@ def main():
         if not args.output_dir.exists():
             print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
             sys.exit(1)
-        run_server(args.output_dir, port=args.port)
+        run_server(args.output_dir, host=args.host, port=args.port)
         return
 
     if args.transcribe_only:
