@@ -18,11 +18,12 @@ uv sync
 # Process a video file
 uv run videocatalog video.avi --output-dir output
 
-# View gallery
+# View gallery (read-only)
 open output/gallery.html
 
-# Start editing server (enables tag/year editing)
+# View and edit (start server, then open browser)
 uv run videocatalog --output-dir output --serve
+open http://localhost:8000
 ```
 
 ### Options
