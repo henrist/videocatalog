@@ -3,7 +3,6 @@
 import json
 import re
 import subprocess
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -22,7 +21,7 @@ def load_catalog(output_dir: Path) -> list[CatalogEntry]:
 def save_catalog(output_dir: Path, entries: list[CatalogEntry]) -> None:
     """Save catalog.json to output directory."""
     catalog_path = output_dir / "catalog.json"
-    data = {'videos': [asdict(e) for e in entries]}
+    data = {'videos': [e.model_dump() for e in entries]}
     catalog_path.write_text(json.dumps(data, indent=2))
 
 
