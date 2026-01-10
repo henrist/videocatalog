@@ -279,12 +279,18 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             border-radius: 12px;
             font-size: 12px;
         }
+        .tag-item .conf {
+            cursor: pointer;
+            color: #aaa;
+        }
+        .tag-item .conf:hover { color: #fff; }
         .tag-item .remove {
             cursor: pointer;
             color: #888;
         }
         .tag-item .remove:hover { color: #f66; }
         .edit-row { display: flex; gap: 8px; align-items: center; }
+        label.inline { font-size: 12px; color: #aaa; margin-left: 8px; }
         .edit-actions {
             display: flex;
             gap: 8px;
@@ -383,6 +389,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 <label>Tags</label>
                 <div class="edit-row">
                     <input type="text" id="newTagName" placeholder="Tag name">
+                    <label class="inline">Confidence:</label>
                     <select id="newTagConf">
                         <option value="high">High</option>
                         <option value="medium">Medium</option>
@@ -396,6 +403,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 <label>Year</label>
                 <div class="edit-row">
                     <input type="number" id="editYear" placeholder="Year" style="width:100px">
+                    <label class="inline">Confidence:</label>
                     <select id="yearConf">
                         <option value="high">High</option>
                         <option value="medium">Medium</option>
@@ -662,10 +670,17 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             tagList.innerHTML = currentTags.map((t, i) => `
                 <div class="tag-item">
                     <span>${t.name}</span>
-                    <span class="conf">(${t.confidence})</span>
+                    <span class="conf" onclick="cycleConf(${i})" title="Click to change">(${t.confidence})</span>
                     <span class="remove" onclick="removeTag(${i})">&times;</span>
                 </div>
             `).join('');
+        }
+
+        function cycleConf(idx) {
+            const levels = ['high', 'medium', 'low'];
+            const curr = levels.indexOf(currentTags[idx].confidence);
+            currentTags[idx].confidence = levels[(curr + 1) % 3];
+            renderTagList();
         }
 
         function addTag() {
