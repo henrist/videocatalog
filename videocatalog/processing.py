@@ -1,8 +1,11 @@
 """Video processing functions for detection, splitting, and transcription."""
 
 import json
+import multiprocessing
+import os
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -326,11 +329,11 @@ _whisper_model = None
 
 
 def get_whisper_model():
-    """Get or create the Whisper model (singleton)."""
+    """Get or create the Whisper model (singleton per process)."""
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        print("  Loading Whisper large-v3 model...")
+        print(f"  [pid {os.getpid()}] Loading Whisper large-v3 model...")
         _whisper_model = WhisperModel("large-v3", device="auto", compute_type="auto")
     return _whisper_model
 
@@ -383,29 +386,144 @@ def transcribe_video(video_path: Path) -> str:
         return ""
 
 
-def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool = True) -> list[ClipInfo]:
-    """Process clips: generate thumbnails and transcripts."""
+def _transcribe_from_wav(video_path: Path, wav_path: Path) -> str:
+    """Transcribe from pre-extracted WAV file."""
+    txt_path = video_path.with_suffix('.txt')
+
+    if txt_path.exists() and txt_path.stat().st_size > 0:
+        wav_path.unlink(missing_ok=True)
+        return txt_path.read_text()
+
+    try:
+        model = get_whisper_model()
+        segments, _ = model.transcribe(
+            str(wav_path),
+            language="no",
+            beam_size=10,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 500}
+        )
+        text = " ".join(seg.text.strip() for seg in segments)
+        txt_path.write_text(text)
+        return text
+    except Exception as e:
+        print(f"    Error transcribing {video_path.name}: {e}")
+        return ""
+    finally:
+        wav_path.unlink(missing_ok=True)
+
+
+def _transcribe_worker(args: tuple[str, str]) -> tuple[str, str]:
+    """Worker function for multiprocessing pool. Takes/returns strings for pickling."""
+    video_path_str, wav_path_str = args
+    video_path = Path(video_path_str)
+    wav_path = Path(wav_path_str)
+    transcript = _transcribe_from_wav(video_path, wav_path)
+    return (video_path_str, transcript)
+
+
+def _get_default_workers() -> int:
+    """Get default worker count for ffmpeg operations."""
+    return min(os.cpu_count() or 4, 8)
+
+
+def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool = True, workers: int = 0, transcribe_workers: int = 1) -> list[ClipInfo]:
+    """Process clips with parallel audio extraction and thumbnails."""
     thumb_dir = video_subdir / "thumbs"
     thumb_dir.mkdir(exist_ok=True)
 
-    print("Processing clips...")
+    if workers <= 0:
+        workers = _get_default_workers()
+
+    print(f"Processing {len(video_files)} clips (workers={workers})...")
+
+    # Phase 1: Convert to MP4 if needed (parallel)
+    non_mp4 = [(i, v) for i, v in enumerate(video_files) if v.suffix.lower() != '.mp4']
+    mp4_results = {}  # index -> mp4_path
+    if non_mp4:
+        print(f"  Converting {len(non_mp4)} non-MP4 files...")
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(convert_to_mp4, v): i for i, v in non_mp4}
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    mp4_results[idx] = future.result()
+                except Exception as e:
+                    print(f"    Error converting {video_files[idx].name}: {e}")
+                    mp4_results[idx] = video_files[idx]  # keep original on error
+    # Build mp4_files list preserving order
+    mp4_files = [mp4_results.get(i, v if v.suffix.lower() == '.mp4' else v.with_suffix('.mp4'))
+                 for i, v in enumerate(video_files)]
+
+    # Phase 2: Extract audio in parallel (for files needing transcription)
+    wav_map = {}  # mp4_path -> wav_path
+    if transcribe:
+        to_transcribe = [f for f in mp4_files if not f.with_suffix('.txt').exists()]
+        if to_transcribe:
+            print(f"  Extracting audio for {len(to_transcribe)} files...")
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(extract_audio, f): f for f in to_transcribe}
+                for future in as_completed(futures):
+                    mp4 = futures[future]
+                    try:
+                        wav_map[mp4] = future.result()
+                    except Exception as e:
+                        print(f"    Error extracting audio for {mp4.name}: {e}")
+
+    # Phase 3: Transcribe (parallel with multiprocessing if transcribe_workers > 1)
+    transcripts = {}
+    if transcribe and wav_map:
+        print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
+        try:
+            if transcribe_workers == 1:
+                # Sequential - no multiprocessing overhead
+                for i, (mp4, wav) in enumerate(wav_map.items(), 1):
+                    print(f"    [{i}/{len(wav_map)}] {mp4.name}")
+                    transcripts[mp4] = _transcribe_from_wav(mp4, wav)
+            else:
+                # Parallel - each process loads own model
+                work_items = [(str(mp4), str(wav)) for mp4, wav in wav_map.items()]
+                ctx = multiprocessing.get_context('spawn')
+                pool = ctx.Pool(processes=transcribe_workers)
+                try:
+                    for i, (video_path_str, transcript) in enumerate(pool.imap_unordered(_transcribe_worker, work_items), 1):
+                        print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
+                        transcripts[Path(video_path_str)] = transcript
+                finally:
+                    pool.close()
+                    pool.join()
+        except Exception:
+            # Clean up WAV files on error
+            for wav in wav_map.values():
+                wav.unlink(missing_ok=True)
+            raise
+
+    # Phase 4: Generate thumbnails in parallel
+    print("  Generating thumbnails...")
+    thumb_results = {}
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(generate_thumbnails, f, thumb_dir): f for f in mp4_files}
+        for future in as_completed(futures):
+            mp4 = futures[future]
+            try:
+                thumb_results[mp4] = future.result()
+            except Exception as e:
+                print(f"    Error generating thumbnails for {mp4.name}: {e}")
+                thumb_results[mp4] = []
+
+    # Build final clip list (preserve original order)
     clips = []
-
-    for i, video in enumerate(video_files, 1):
-        mp4_file = convert_to_mp4(video)
-        print(f"  [{i}/{len(video_files)}] {mp4_file.name}")
-
-        duration = get_video_duration(mp4_file)
-        thumbs = generate_thumbnails(mp4_file, thumb_dir)
-
+    for mp4_file in mp4_files:
         txt_path = mp4_file.with_suffix('.txt')
-        if txt_path.exists() and txt_path.stat().st_size > 0:
+        if mp4_file in transcripts:
+            transcript = transcripts[mp4_file]
+        elif txt_path.exists() and txt_path.stat().st_size > 0:
             transcript = txt_path.read_text()
-        elif transcribe:
-            print(f"    Transcribing...")
-            transcript = transcribe_video(mp4_file)
         else:
             transcript = ""
+
+        duration = get_video_duration(mp4_file)
+        thumbs = thumb_results.get(mp4_file, [])
 
         clips.append(ClipInfo(
             file=mp4_file.name,

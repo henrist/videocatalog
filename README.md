@@ -38,6 +38,8 @@ open http://localhost:8000
 - `--serve` - Start web server for editing tags/year
 - `--regenerate` - Regenerate gallery HTML on each page load
 - `--host` / `--port` - Server bind options
+- `--workers N` - Parallel workers for ffmpeg operations (default: auto)
+- `--transcribe-workers N` - Parallel Whisper instances (default: 1, each uses ~3GB RAM)
 
 ## Docker
 

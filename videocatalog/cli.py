@@ -17,8 +17,11 @@ from .processing import (
     split_video,
     convert_to_mp4,
     transcribe_video,
+    extract_audio,
     process_clips,
     update_catalog,
+    _get_default_workers,
+    _transcribe_worker,
 )
 from .gallery import generate_gallery
 
@@ -53,6 +56,10 @@ def main():
                         help="Host for web server (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000,
                         help="Port for web server (default: 8000)")
+    parser.add_argument("--workers", type=int, default=0,
+                        help="Number of parallel workers for ffmpeg (default: auto)")
+    parser.add_argument("--transcribe-workers", type=int, default=1,
+                        help="Number of parallel Whisper workers (default: 1, each uses ~3GB RAM)")
 
     args = parser.parse_args()
 
@@ -80,20 +87,63 @@ def main():
         return
 
     if args.transcribe_only:
+        import multiprocessing
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         subdirs = find_video_subdirs()
         if not subdirs:
             print("No video subdirectories found")
             sys.exit(1)
 
+        ffmpeg_workers = args.workers if args.workers > 0 else _get_default_workers()
+        transcribe_workers = args.transcribe_workers
         total = sum(len(videos) for _, videos in subdirs)
         print(f"Transcribing {total} videos in {len(subdirs)} subdirectories")
+        print(f"  ffmpeg workers={ffmpeg_workers}, transcribe workers={transcribe_workers}")
 
         for subdir, videos in subdirs:
             print(f"\n{subdir.name}:")
-            for video in sorted(videos):
-                mp4_file = convert_to_mp4(video)
-                print(f"  {mp4_file.name}")
-                transcribe_video(mp4_file)
+            mp4_files = [convert_to_mp4(v) for v in sorted(videos)]
+
+            # Filter to only files needing transcription
+            to_transcribe = [f for f in mp4_files if not f.with_suffix('.txt').exists()]
+            if not to_transcribe:
+                print("  All files already transcribed")
+            else:
+                # Phase 1: Extract audio in parallel
+                print(f"  Extracting audio for {len(to_transcribe)} files...")
+                wav_map = {}
+                with ThreadPoolExecutor(max_workers=ffmpeg_workers) as executor:
+                    futures = {executor.submit(extract_audio, f): f for f in to_transcribe}
+                    for future in as_completed(futures):
+                        mp4 = futures[future]
+                        try:
+                            wav_map[mp4] = future.result()
+                        except Exception as e:
+                            print(f"    Error extracting audio for {mp4.name}: {e}")
+
+                # Phase 2: Transcribe (parallel if workers > 1)
+                print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
+                try:
+                    if transcribe_workers == 1:
+                        from .processing import _transcribe_from_wav
+                        for i, (mp4, wav) in enumerate(wav_map.items(), 1):
+                            print(f"    [{i}/{len(wav_map)}] {mp4.name}")
+                            _transcribe_from_wav(mp4, wav)
+                    else:
+                        work_items = [(str(mp4), str(wav)) for mp4, wav in wav_map.items()]
+                        ctx = multiprocessing.get_context('spawn')
+                        pool = ctx.Pool(processes=transcribe_workers)
+                        try:
+                            for i, (video_path_str, _) in enumerate(pool.imap_unordered(_transcribe_worker, work_items), 1):
+                                print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
+                        finally:
+                            pool.close()
+                            pool.join()
+                except Exception:
+                    for wav in wav_map.values():
+                        wav.unlink(missing_ok=True)
+                    raise
 
             metadata_path = subdir / "metadata.json"
             if metadata_path.exists():
@@ -126,7 +176,7 @@ def main():
             metadata_path = subdir / "metadata.json"
 
             print(f"\n{subdir.name}:")
-            clips = process_clips(subdir, sorted(videos), transcribe=not args.skip_transcribe)
+            clips = process_clips(subdir, sorted(videos), transcribe=not args.skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
             metadata = VideoMetadata(
                 source_file=subdir.name,
                 processed_date=datetime.now().isoformat(),
@@ -208,7 +258,7 @@ def main():
     output_files = split_video(args.input, video_subdir, cuts, duration)
     print()
 
-    clips = process_clips(video_subdir, output_files, transcribe=not args.skip_transcribe)
+    clips = process_clips(video_subdir, output_files, transcribe=not args.skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
     metadata = VideoMetadata(
         source_file=args.input.name,
         processed_date=datetime.now().isoformat(),
