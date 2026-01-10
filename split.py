@@ -361,9 +361,28 @@ def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        print("  Loading Whisper model...")
-        _whisper_model = WhisperModel("medium", device="auto", compute_type="auto")
+        print("  Loading Whisper large-v3 model...")
+        _whisper_model = WhisperModel("large-v3", device="auto", compute_type="auto")
     return _whisper_model
+
+
+def extract_audio(video_path: Path) -> Path:
+    """Extract audio from video to WAV for cleaner transcription."""
+    wav_path = video_path.with_suffix('.wav')
+    if wav_path.exists():
+        return wav_path
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-vn",  # No video
+        "-acodec", "pcm_s16le",  # 16-bit PCM
+        "-ar", "16000",  # 16kHz sample rate (Whisper native)
+        "-ac", "1",  # Mono
+        str(wav_path)
+    ]
+    subprocess.run(cmd, capture_output=True)
+    return wav_path
 
 
 def transcribe_video(video_path: Path) -> str:
@@ -375,16 +394,28 @@ def transcribe_video(video_path: Path) -> str:
         return txt_path.read_text()
 
     try:
+        # Extract clean audio first
+        wav_path = extract_audio(video_path)
+
         model = get_whisper_model()
 
-        # Transcribe with Norwegian language
-        segments, _ = model.transcribe(str(video_path), language="no")
+        # Transcribe with improved settings
+        segments, _ = model.transcribe(
+            str(wav_path),
+            language="no",
+            beam_size=10,  # More thorough search
+            vad_filter=True,  # Filter non-speech
+            vad_parameters={"min_silence_duration_ms": 500}
+        )
 
         # Collect all text
         text = " ".join(seg.text.strip() for seg in segments)
 
         # Save to file
         txt_path.write_text(text)
+
+        # Clean up WAV file
+        wav_path.unlink(missing_ok=True)
 
         return text
     except Exception as e:
