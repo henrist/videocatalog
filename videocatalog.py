@@ -3,11 +3,91 @@
 
 import argparse
 import html as html_lib
+import json
 import re
+import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
+from typing import Optional
+
+
+@dataclass
+class ClipInfo:
+    """Metadata for a single video clip."""
+    file: str
+    name: str
+    thumbs: list[str]
+    duration: str
+    transcript: str
+
+
+@dataclass
+class VideoMetadata:
+    """Metadata for a processed source video."""
+    source_file: str
+    processed_date: str
+    clips: list[ClipInfo] = field(default_factory=list)
+
+    def save(self, path: Path) -> None:
+        data = {
+            'source_file': self.source_file,
+            'processed_date': self.processed_date,
+            'clips': [asdict(c) for c in self.clips]
+        }
+        path.write_text(json.dumps(data, indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> 'VideoMetadata':
+        data = json.loads(path.read_text())
+        clips = [ClipInfo(**c) for c in data.get('clips', [])]
+        return cls(
+            source_file=data['source_file'],
+            processed_date=data['processed_date'],
+            clips=clips
+        )
+
+
+@dataclass
+class CatalogEntry:
+    """Entry in the master catalog."""
+    name: str
+    source_file: str
+    processed_date: str
+    clip_count: int
+
+
+def load_catalog(output_dir: Path) -> list[CatalogEntry]:
+    """Load catalog.json from output directory."""
+    catalog_path = output_dir / "catalog.json"
+    if not catalog_path.exists():
+        return []
+    data = json.loads(catalog_path.read_text())
+    return [CatalogEntry(**e) for e in data.get('videos', [])]
+
+
+def save_catalog(output_dir: Path, entries: list[CatalogEntry]) -> None:
+    """Save catalog.json to output directory."""
+    catalog_path = output_dir / "catalog.json"
+    data = {'videos': [asdict(e) for e in entries]}
+    catalog_path.write_text(json.dumps(data, indent=2))
+
+
+def update_catalog(output_dir: Path, name: str, source_file: str, clip_count: int) -> None:
+    """Add or update a video in the catalog."""
+    entries = load_catalog(output_dir)
+    # Remove existing entry with same name
+    entries = [e for e in entries if e.name != name]
+    # Add new entry
+    entries.append(CatalogEntry(
+        name=name,
+        source_file=source_file,
+        processed_date=datetime.now().isoformat(),
+        clip_count=clip_count
+    ))
+    save_catalog(output_dir, entries)
 
 
 @dataclass
@@ -423,24 +503,22 @@ def transcribe_video(video_path: Path) -> str:
         return ""
 
 
-def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool = True) -> None:
-    """Generate thumbnails, transcripts, and HTML gallery."""
-    thumb_dir = output_dir / "thumbs"
+def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool = True) -> list[ClipInfo]:
+    """Process clips: generate thumbnails and transcripts. Returns ClipInfo list."""
+    thumb_dir = video_subdir / "thumbs"
     thumb_dir.mkdir(exist_ok=True)
 
-    print("Generating gallery...")
+    print("Processing clips...")
+    clips = []
 
-    videos = []
     for i, video in enumerate(video_files, 1):
-        # Convert to MP4 for web playback
         mp4_file = convert_to_mp4(video)
-
         print(f"  [{i}/{len(video_files)}] {mp4_file.name}")
 
         duration = get_video_duration(mp4_file)
         thumbs = generate_thumbnails(mp4_file, thumb_dir)
 
-        # Load existing transcript or generate new one
+        # Load or generate transcript
         txt_path = mp4_file.with_suffix('.txt')
         if txt_path.exists() and txt_path.stat().st_size > 0:
             transcript = txt_path.read_text()
@@ -450,13 +528,41 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
         else:
             transcript = ""
 
-        videos.append({
-            'file': mp4_file.name,
-            'name': video.stem,
-            'thumbs': [f"thumbs/{t}" for t in thumbs],
-            'duration': format_duration(duration),
-            'transcript': transcript
-        })
+        clips.append(ClipInfo(
+            file=mp4_file.name,
+            name=mp4_file.stem,
+            thumbs=[f"thumbs/{t}" for t in thumbs],
+            duration=format_duration(duration),
+            transcript=transcript
+        ))
+
+    return clips
+
+
+def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
+    """Generate HTML gallery from all processed videos in subdirectories."""
+    print("Generating gallery...")
+
+    # Collect all videos from subdirectories
+    video_groups = []  # List of (source_name, clips)
+
+    for subdir in sorted(output_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        metadata_path = subdir / "metadata.json"
+        if not metadata_path.exists():
+            continue
+
+        metadata = VideoMetadata.load(metadata_path)
+        video_groups.append((subdir.name, metadata.clips, subdir))
+        print(f"  Found {len(metadata.clips)} clips in {subdir.name}")
+
+    if not video_groups:
+        print("  No processed videos found")
+        return
+
+    total_clips = sum(len(clips) for _, clips, _ in video_groups)
+    print(f"  Total: {total_clips} clips from {len(video_groups)} videos")
 
     # Generate HTML
     html = '''<!DOCTYPE html>
@@ -501,6 +607,34 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
             cursor: pointer;
         }
         .btn:hover { background: #3a3a3a; }
+        .source-group { margin-bottom: 24px; }
+        .source-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: #333;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .source-header:hover { background: #3a3a3a; }
+        .source-header h2 {
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+        }
+        .source-header .clip-count {
+            font-size: 12px;
+            color: #888;
+        }
+        .source-header .toggle-icon {
+            font-size: 12px;
+            color: #888;
+            transition: transform 0.2s;
+        }
+        .source-group.collapsed .toggle-icon { transform: rotate(-90deg); }
+        .source-group.collapsed .gallery { display: none; }
         .gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
@@ -593,24 +727,39 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
     <div class="controls">
         <input type="text" class="search-box" id="search" placeholder="Search transcripts...">
         <button class="btn" id="expandAll">Expand All</button>
+        <button class="btn" id="collapseGroups">Collapse Sources</button>
     </div>
-    <div class="gallery">
+    <div id="content">
 '''
 
-    for v in videos:
-        thumbs_html = ''.join(f'<img src="{t}" alt="">' for t in v['thumbs'])
-        transcript_escaped = html_lib.escape(v['transcript'])
-        html += f'''        <div class="video-card" data-transcript="{transcript_escaped}">
-            <div class="thumb-grid" onclick="playVideo('{v['file']}')">{thumbs_html}</div>
-            <div class="video-info">
-                <div class="video-header">
-                    <div class="video-name">{v['name']}</div>
-                    <div class="video-duration">{v['duration']}</div>
-                </div>
-                <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
-                <div class="transcript">{transcript_escaped}</div>
-            </div>
+    for source_name, clips, subdir in video_groups:
+        html += f'''    <div class="source-group" data-source="{source_name}">
+        <div class="source-header" onclick="toggleGroup(this)">
+            <span class="toggle-icon">▼</span>
+            <h2>{source_name}</h2>
+            <span class="clip-count">{len(clips)} clips</span>
         </div>
+        <div class="gallery">
+'''
+        for clip in clips:
+            # Prefix paths with subdir name for correct relative paths
+            thumbs_html = ''.join(f'<img src="{source_name}/{t}" alt="">' for t in clip.thumbs)
+            video_path = f"{source_name}/{clip.file}"
+            transcript_escaped = html_lib.escape(clip.transcript)
+            html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}">
+                <div class="thumb-grid" onclick="playVideo('{video_path}')">{thumbs_html}</div>
+                <div class="video-info">
+                    <div class="video-header">
+                        <div class="video-name">{clip.name}</div>
+                        <div class="video-duration">{clip.duration}</div>
+                    </div>
+                    <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
+                    <div class="transcript">{transcript_escaped}</div>
+                </div>
+            </div>
+'''
+        html += '''        </div>
+    </div>
 '''
 
     html += '''    </div>
@@ -624,7 +773,9 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
         const player = document.getElementById('player');
         const search = document.getElementById('search');
         const expandBtn = document.getElementById('expandAll');
+        const collapseBtn = document.getElementById('collapseGroups');
         const cards = document.querySelectorAll('.video-card');
+        const groups = document.querySelectorAll('.source-group');
 
         // Build search index
         const cardData = Array.from(cards).map((card, i) => ({
@@ -659,6 +810,10 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
             el.textContent = isExpanded ? 'Hide transcript' : 'Show transcript';
         }
 
+        function toggleGroup(header) {
+            header.parentElement.classList.toggle('collapsed');
+        }
+
         function highlightMatches(text, matches) {
             if (!matches || !matches.length) return text;
             const indices = matches[0].indices.sort((a, b) => b[0] - a[0]);
@@ -676,6 +831,7 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
                     card.classList.remove('hidden');
                     card.querySelector('.transcript').textContent = card.dataset.transcript;
                 });
+                groups.forEach(g => g.classList.remove('collapsed'));
                 return;
             }
 
@@ -694,6 +850,9 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
                     transcriptEl.textContent = card.dataset.transcript;
                 }
             });
+
+            // Expand groups with matches
+            groups.forEach(g => g.classList.remove('collapsed'));
         });
 
         let allExpanded = false;
@@ -711,6 +870,13 @@ def generate_gallery(output_dir: Path, video_files: list[Path], transcribe: bool
                     toggle.textContent = 'Show transcript';
                 }
             });
+        });
+
+        let groupsCollapsed = false;
+        collapseBtn.addEventListener('click', () => {
+            groupsCollapsed = !groupsCollapsed;
+            collapseBtn.textContent = groupsCollapsed ? 'Expand Sources' : 'Collapse Sources';
+            groups.forEach(g => g.classList.toggle('collapsed', groupsCollapsed));
         });
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal({target: modal}); });
@@ -742,55 +908,82 @@ def main():
                         help="Skip transcription step")
     parser.add_argument("--transcribe-only", action="store_true",
                         help="Only run transcription on existing videos in output-dir")
+    parser.add_argument("--force", action="store_true",
+                        help="Force reprocessing even if already processed")
 
     args = parser.parse_args()
 
-    # Helper to find videos in output dir
-    def find_output_videos():
+    # Helper to find video subdirectories
+    def find_video_subdirs():
         if not args.output_dir.exists():
             print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
             sys.exit(1)
 
-        extensions = {'.avi', '.mp4', '.mov', '.mkv', '.webm', '.wmv', '.flv'}
-        all_videos = [
-            f for f in args.output_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in extensions
-        ]
-
-        # Group by stem, prefer non-mp4 sources (they'll be converted)
-        by_stem = {}
-        for f in all_videos:
-            stem = f.stem
-            if stem not in by_stem:
-                by_stem[stem] = f
-            elif f.suffix.lower() != '.mp4':
-                by_stem[stem] = f
-
-        video_files = sorted(by_stem.values())
-        if not video_files:
-            print("No video files found in output directory")
-            sys.exit(1)
-        return video_files
+        subdirs = []
+        for subdir in sorted(args.output_dir.iterdir()):
+            if subdir.is_dir():
+                # Check for video files in subdir
+                extensions = {'.avi', '.mp4', '.mov', '.mkv', '.webm', '.wmv', '.flv'}
+                videos = [f for f in subdir.iterdir()
+                          if f.is_file() and f.suffix.lower() in extensions]
+                if videos:
+                    subdirs.append((subdir, videos))
+        return subdirs
 
     # Transcribe-only mode
     if args.transcribe_only:
-        video_files = find_output_videos()
-        print(f"Transcribing {len(video_files)} videos in {args.output_dir}")
-        for i, video in enumerate(video_files, 1):
-            mp4_file = convert_to_mp4(video)
-            print(f"  [{i}/{len(video_files)}] {mp4_file.name}")
-            transcribe_video(mp4_file)
-        print()
-        print("Done!")
+        subdirs = find_video_subdirs()
+        if not subdirs:
+            print("No video subdirectories found")
+            sys.exit(1)
+
+        total = sum(len(videos) for _, videos in subdirs)
+        print(f"Transcribing {total} videos in {len(subdirs)} subdirectories")
+
+        for subdir, videos in subdirs:
+            print(f"\n{subdir.name}:")
+            for video in sorted(videos):
+                mp4_file = convert_to_mp4(video)
+                print(f"  {mp4_file.name}")
+                transcribe_video(mp4_file)
+
+            # Update metadata if exists
+            metadata_path = subdir / "metadata.json"
+            if metadata_path.exists():
+                metadata = VideoMetadata.load(metadata_path)
+                for clip in metadata.clips:
+                    txt_path = subdir / clip.file.replace('.mp4', '.txt')
+                    if txt_path.exists():
+                        clip.transcript = txt_path.read_text()
+                metadata.save(metadata_path)
+
+        print("\nDone!")
         return
 
-    # Gallery-only mode: regenerate from existing files
+    # Gallery-only mode: regenerate metadata and gallery from existing files
     if args.gallery_only:
-        video_files = find_output_videos()
-        print(f"Found {len(video_files)} videos in {args.output_dir}")
-        generate_gallery(args.output_dir, video_files, transcribe=not args.skip_transcribe)
-        print()
-        print("Done!")
+        subdirs = find_video_subdirs()
+        if not subdirs:
+            print("No video subdirectories found")
+            sys.exit(1)
+
+        print(f"Processing {len(subdirs)} video subdirectories...")
+        for subdir, videos in subdirs:
+            metadata_path = subdir / "metadata.json"
+
+            # Generate/update metadata for each subdir
+            print(f"\n{subdir.name}:")
+            clips = process_clips(subdir, sorted(videos), transcribe=not args.skip_transcribe)
+            metadata = VideoMetadata(
+                source_file=subdir.name,
+                processed_date=datetime.now().isoformat(),
+                clips=clips
+            )
+            metadata.save(metadata_path)
+            update_catalog(args.output_dir, subdir.name, subdir.name, len(clips))
+
+        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
+        print("\nDone!")
         return
 
     if not args.input:
@@ -800,6 +993,23 @@ def main():
     if not args.input.exists():
         print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         sys.exit(1)
+
+    # Create subdirectory for this source video
+    video_name = args.input.stem
+    video_subdir = args.output_dir / video_name
+    metadata_path = video_subdir / "metadata.json"
+
+    # Check if already processed
+    if metadata_path.exists() and not args.force:
+        print(f"Already processed: {video_name} (use --force to reprocess)")
+        print("Regenerating gallery...")
+        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
+        return
+
+    # Remove existing output if forcing
+    if video_subdir.exists() and args.force:
+        print(f"Removing existing output: {video_subdir}")
+        shutil.rmtree(video_subdir)
 
     print(f"Analyzing: {args.input}")
     print()
@@ -839,11 +1049,24 @@ def main():
         print("[Dry run - no files created]")
         return
 
-    print(f"Splitting to: {args.output_dir}")
-    output_files = split_video(args.input, args.output_dir, cuts, duration)
+    print(f"Splitting to: {video_subdir}")
+    output_files = split_video(args.input, video_subdir, cuts, duration)
     print()
 
-    generate_gallery(args.output_dir, output_files, transcribe=not args.skip_transcribe)
+    # Process clips and save metadata
+    clips = process_clips(video_subdir, output_files, transcribe=not args.skip_transcribe)
+    metadata = VideoMetadata(
+        source_file=args.input.name,
+        processed_date=datetime.now().isoformat(),
+        clips=clips
+    )
+    metadata.save(metadata_path)
+
+    # Update catalog
+    update_catalog(args.output_dir, video_name, args.input.name, len(clips))
+
+    # Generate combined gallery
+    generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
     print()
     print("Done!")
 

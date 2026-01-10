@@ -31,7 +31,7 @@ ifndef INPUT
 	$(error INPUT is required. Usage: make split INPUT=video.avi)
 endif
 	@mkdir -p $(OUTPUT) $(CACHE)
-	docker run --rm -e PYTHONUNBUFFERED=1 \
+	docker run --rm \
 		-v "$(CURDIR)/$(INPUT):/data/input$(suffix $(INPUT))" \
 		-v "$(CURDIR)/$(OUTPUT):/data/output" \
 		-v "$(CURDIR)/$(CACHE):/root/.cache/huggingface" \
@@ -39,16 +39,17 @@ endif
 
 transcribe:
 	@mkdir -p $(OUTPUT) $(CACHE)
-	docker run --rm -e PYTHONUNBUFFERED=1 \
+	docker run --rm \
 		-v "$(CURDIR)/$(OUTPUT):/data/output" \
 		-v "$(CURDIR)/$(CACHE):/root/.cache/huggingface" \
 		$(IMAGE) --output-dir /data/output --transcribe-only $(ARGS)
 
 gallery:
-	@mkdir -p $(OUTPUT)
-	docker run --rm -e PYTHONUNBUFFERED=1 \
+	@mkdir -p $(OUTPUT) $(CACHE)
+	docker run --rm \
 		-v "$(CURDIR)/$(OUTPUT):/data/output" \
-		$(IMAGE) --output-dir /data/output --gallery-only --skip-transcribe $(ARGS)
+		-v "$(CURDIR)/$(CACHE):/root/.cache/huggingface" \
+		$(IMAGE) --output-dir /data/output --gallery-only $(ARGS)
 
 dry-run:
 ifndef INPUT
@@ -59,7 +60,7 @@ endif
 		$(IMAGE) "/data/input$(suffix $(INPUT))" --output-dir /data/output --dry-run $(ARGS)
 
 clean:
-	rm -rf $(OUTPUT)/*.mp4 $(OUTPUT)/*.txt $(OUTPUT)/thumbs $(OUTPUT)/gallery.html
+	rm -rf $(OUTPUT)/*/  $(OUTPUT)/gallery.html $(OUTPUT)/catalog.json
 
 clean-all:
 	rm -rf $(OUTPUT) $(CACHE)
