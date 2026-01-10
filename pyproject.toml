@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-videocatalog = "videocatalog:main"
+videocatalog = "videocatalog.cli:main"
 
 [build-system]
 requires = ["hatchling"]

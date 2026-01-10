@@ -5,6 +5,6 @@ RUN apt-get update && apt-get install -y python3.12 python3.12-venv ffmpeg && rm
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python python3.12
-COPY videocatalog.py .
+COPY videocatalog/ videocatalog/
 RUN uv sync --frozen --no-dev --python python3.12
 ENTRYPOINT ["uv", "run", "videocatalog"]
