@@ -1,7 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-RUN pip install faster-whisper
 WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 COPY videocatalog.py .
-ENTRYPOINT ["python", "videocatalog.py"]
+RUN uv sync --frozen --no-dev
+ENTRYPOINT ["uv", "run", "videocatalog"]
