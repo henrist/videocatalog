@@ -179,14 +179,23 @@ def format_duration(seconds: float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
+def format_time_filename(seconds: float) -> str:
+    """Format seconds as filename-safe timestamp like 00h00m00s (always sortable)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}h{minutes:02d}m{secs:02d}s"
+
+
 def find_cuts(
     scenes: list[tuple[float, float]],
     blacks: list[tuple[float, float]],
     audio_changes: dict[int, float],
     min_confidence: int,
     min_gap: float = 10.0,
-    window: int = 3
-) -> list[CutCandidate]:
+    window: int = 3,
+    return_all: bool = False
+) -> list[CutCandidate] | tuple[list[CutCandidate], list[CutCandidate]]:
     """Combine signals to find recording boundaries."""
     scene_map: dict[int, tuple[float, float]] = {}
     for time, score in scenes:
@@ -260,7 +269,10 @@ def find_cuts(
         if not too_close:
             selected.append(candidate)
 
-    return sorted(selected, key=lambda c: c.time)
+    result = sorted(selected, key=lambda c: c.time)
+    if return_all:
+        return result, candidates
+    return result
 
 
 def split_video(
@@ -280,8 +292,9 @@ def split_video(
         start = boundaries[i]
         end = boundaries[i + 1]
         segment_num = i + 1
+        time_stamp = format_time_filename(start)
 
-        output_path = output_dir / f"{stem}_{segment_num:03d}.mp4"
+        output_path = output_dir / f"{stem}_{time_stamp}.mp4"
         output_files.append(output_path)
 
         print(f"  Segment {segment_num}: {format_time(start)} -> {format_time(end)} => {output_path.name}")
@@ -331,15 +344,19 @@ def convert_to_mp4(video_path: Path) -> Path:
 
 
 def generate_thumbnails(video_path: Path, thumb_dir: Path, count: int = 12) -> list[str]:
-    """Generate multiple thumbnails from video."""
+    """Generate multiple thumbnails from video, always including first and last frame."""
     duration = get_video_duration(video_path)
     thumbs = []
 
-    for i in range(count):
-        pct = (i + 0.5) / count
-        seek = duration * pct
-        seek = max(0, min(seek, duration - 0.1))
+    # Generate seek times: first frame, evenly spaced middle frames, last frame
+    seek_times = [0.0]  # First frame
+    if count > 2:
+        for i in range(1, count - 1):
+            seek_times.append(duration * i / (count - 1))
+    if count > 1:
+        seek_times.append(max(0, duration - 0.1))  # Last frame
 
+    for i, seek in enumerate(seek_times):
         thumb_name = f"{video_path.stem}_{i}.jpg"
         thumb_path = thumb_dir / thumb_name
 

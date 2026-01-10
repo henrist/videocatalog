@@ -503,18 +503,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         const tagFiltersEl = document.getElementById('tagFilters');
         let activeFilters = new Set();
 
-        // Helper to get clip index from name (e.g., "video_001" -> 1)
-        function getClipIndex(clipName) {{
-            const match = clipName.match(/(\\d+)$/);
-            return match ? parseInt(match[1], 10) : 0;
-        }}
-
-        // Check if a clip is within a group's range
+        // Check if a clip is within a group's range (uses string comparison since names are sortable)
         function clipInGroup(clipName, group) {{
-            const clipIdx = getClipIndex(clipName);
-            const startIdx = getClipIndex(group.start_clip);
-            const endIdx = getClipIndex(group.end_clip);
-            return clipIdx >= startIdx && clipIdx <= endIdx;
+            return clipName >= group.start_clip && clipName <= group.end_clip;
         }}
 
         // Find the group containing a clip
@@ -737,19 +728,15 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 }}
             }} else {{
                 // Second clip selected - validate range
-                const startIdx = getClipIndex(groupMode.startClip);
-                const endIdx = getClipIndex(clipName);
-                const actualStart = Math.min(startIdx, endIdx);
-                const actualEnd = Math.max(startIdx, endIdx);
+                const actualStart = groupMode.startClip <= clipName ? groupMode.startClip : clipName;
+                const actualEnd = groupMode.startClip <= clipName ? clipName : groupMode.startClip;
 
                 // Check for overlapping groups (skip the group being edited)
                 const edits = userEdits[source] || {{}};
                 const existingGroups = edits.groups || [];
                 for (const g of existingGroups) {{
                     if (groupMode.mode === 'edit-range' && g.id === groupMode.groupId) continue;
-                    const gStart = getClipIndex(g.start_clip);
-                    const gEnd = getClipIndex(g.end_clip);
-                    if (!(actualEnd < gStart || actualStart > gEnd)) {{
+                    if (!(actualEnd < g.start_clip || actualStart > g.end_clip)) {{
                         alert('This range overlaps with an existing group. Delete the existing group first.');
                         return;
                     }}
@@ -767,10 +754,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }}
 
         async function updateGroupRange(source, groupId, startClip, endClip) {{
-            const startIdx = getClipIndex(startClip);
-            const endIdx = getClipIndex(endClip);
-            const actualStartClip = startIdx <= endIdx ? startClip : endClip;
-            const actualEndClip = startIdx <= endIdx ? endClip : startClip;
+            const actualStartClip = startClip <= endClip ? startClip : endClip;
+            const actualEndClip = startClip <= endClip ? endClip : startClip;
 
             const edits = userEdits[source] || {{}};
             const group = (edits.groups || []).find(g => g.id === groupId);
@@ -783,11 +768,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }}
 
         async function createGroup(source, startClip, endClip) {{
-            const startIdx = getClipIndex(startClip);
-            const endIdx = getClipIndex(endClip);
-            // Ensure start <= end
-            const actualStartClip = startIdx <= endIdx ? startClip : endClip;
-            const actualEndClip = startIdx <= endIdx ? endClip : startClip;
+            // Ensure start <= end (string comparison works with sortable names)
+            const actualStartClip = startClip <= endClip ? startClip : endClip;
+            const actualEndClip = startClip <= endClip ? endClip : startClip;
 
             const edits = userEdits[source] || {{ video: {{ tags: [], year: null, description: null }}, groups: [], clips: {{}} }};
             if (!edits.groups) edits.groups = [];
@@ -863,11 +846,11 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             const groups = edits.groups || [];
             const mainGallery = sourceGroup.querySelector(':scope > .gallery');
 
-            // Sort cards by clip index
-            allCards.sort((a, b) => getClipIndex(a.dataset.clip) - getClipIndex(b.dataset.clip));
+            // Sort cards by clip name (names are sortable timestamps)
+            allCards.sort((a, b) => a.dataset.clip.localeCompare(b.dataset.clip));
 
-            // Sort groups by start index
-            const sortedGroups = [...groups].sort((a, b) => getClipIndex(a.start_clip) - getClipIndex(b.start_clip));
+            // Sort groups by start clip name
+            const sortedGroups = [...groups].sort((a, b) => a.start_clip.localeCompare(b.start_clip));
 
             // Clear main gallery
             mainGallery.innerHTML = '';
@@ -882,14 +865,10 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             let currentUngrouped = [];
 
             for (const card of allCards) {{
-                const clipIdx = getClipIndex(card.dataset.clip);
+                const clipName = card.dataset.clip;
 
-                // Check if this card belongs to a group
-                const group = sortedGroups.find(g => {{
-                    const startIdx = getClipIndex(g.start_clip);
-                    const endIdx = getClipIndex(g.end_clip);
-                    return clipIdx >= startIdx && clipIdx <= endIdx;
-                }});
+                // Check if this card belongs to a group (string comparison)
+                const group = sortedGroups.find(g => clipName >= g.start_clip && clipName <= g.end_clip);
 
                 if (group) {{
                     // Flush any pending ungrouped cards first
@@ -905,13 +884,10 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                     if (!placedCards.has(group.id)) {{
                         placedCards.add(group.id);
 
-                        // Get all cards for this group
-                        const startIdx = getClipIndex(group.start_clip);
-                        const endIdx = getClipIndex(group.end_clip);
-                        const groupCards = allCards.filter(c => {{
-                            const idx = getClipIndex(c.dataset.clip);
-                            return idx >= startIdx && idx <= endIdx;
-                        }});
+                        // Get all cards for this group (string comparison)
+                        const groupCards = allCards.filter(c =>
+                            c.dataset.clip >= group.start_clip && c.dataset.clip <= group.end_clip
+                        );
 
                         // Create group container
                         const groupDiv = document.createElement('div');

@@ -8,7 +8,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-from .models import VideoMetadata
+from .models import (
+    VideoMetadata,
+    SplitsFile,
+    SplitParameters,
+    DetectionData,
+    SceneDetection,
+    BlackDetection,
+    AudioChange,
+    CandidateInfo,
+    SegmentInfo,
+)
 from .processing import (
     detect_scenes,
     detect_black_frames,
@@ -37,18 +47,24 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
     parser.add_argument("--min-confidence", type=int, default=45,
                         help="Minimum confidence score for cuts (default: 45)")
-    parser.add_argument("--min-gap", type=float, default=10.0,
-                        help="Minimum gap between cuts in seconds (default: 10)")
+    parser.add_argument("--min-gap", type=float, default=2.0,
+                        help="Minimum gap between cuts in seconds (default: 2)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show detected cuts without splitting")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Show detailed detection info for tuning parameters")
     parser.add_argument("--gallery-only", action="store_true",
                         help="Reprocess clips and regenerate gallery")
     parser.add_argument("--html-only", action="store_true",
                         help="Only regenerate gallery HTML (fast)")
     parser.add_argument("--skip-transcribe", action="store_true",
                         help="Skip transcription step")
+    parser.add_argument("--split-only", action="store_true",
+                        help="Skip transcription (still generates thumbnails and gallery)")
     parser.add_argument("--transcribe-only", action="store_true",
                         help="Only run transcription on existing videos in output-dir")
+    parser.add_argument("--name", type=str,
+                        help="Override output subdirectory name (for testing different configs)")
     parser.add_argument("--force", action="store_true",
                         help="Force reprocessing even if already processed")
     parser.add_argument("--serve", action="store_true",
@@ -196,7 +212,7 @@ def main():
         print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         sys.exit(1)
 
-    video_name = args.input.stem
+    video_name = args.name if args.name else args.input.stem
     video_subdir = args.output_dir / video_name
     metadata_path = video_subdir / "metadata.json"
 
@@ -231,10 +247,45 @@ def main():
     audio_changes = detect_audio_changes(args.input, duration)
 
     print(f"  Found {len(scenes)} scene changes, {len(blacks)} black frames, {len(audio_changes)} audio changes")
-    print()
 
+    if args.verbose:
+        print()
+        print("=== RAW DETECTION DATA ===")
+        print()
+        print("Scene changes (time, score) - threshold >=5:")
+        for time, score in sorted(scenes):
+            marker = " ***" if score >= 15 else " **" if score >= 10 else " *" if score >= 6 else ""
+            print(f"  {format_time(time)} score={score:5.1f}{marker}")
+        print()
+        print("Black frames (end_time, duration) - all >=0.1s:")
+        for end_time, dur in sorted(blacks):
+            marker = " ***" if dur >= 1.0 else " **" if dur >= 0.5 else " *" if dur >= 0.2 else ""
+            print(f"  {format_time(end_time)} dur={dur:.2f}s{marker}")
+        print()
+        print("Audio level jumps (time, step_dB) - threshold >10dB:")
+        for t in sorted(audio_changes.keys()):
+            step = audio_changes[t]
+            marker = " ***" if step >= 25 else " **" if step >= 18 else " *" if step >= 12 else ""
+            print(f"  {format_time(t)} step={step:5.1f}dB{marker}")
+        print()
+        print("Legend: * = low score, ** = medium, *** = high")
+        print()
+
+    print()
     print(f"Finding cuts (min_confidence={args.min_confidence}, min_gap={args.min_gap}s)...")
-    cuts = find_cuts(scenes, blacks, audio_changes, args.min_confidence, args.min_gap)
+    cuts, all_candidates = find_cuts(scenes, blacks, audio_changes, args.min_confidence, args.min_gap, return_all=True)
+
+    if args.verbose:
+        print()
+        print("=== ALL CANDIDATES (chronological) ===")
+        print("Scoring: scene(0-40) + black(0-35) + audio(0-30) = max 105")
+        print()
+        for c in sorted(all_candidates, key=lambda x: x.time):
+            selected = "SELECTED" if c in cuts else f"skip (below {args.min_confidence})" if c.confidence_score < args.min_confidence else "skip (too close)"
+            s, b, a = c.score_breakdown()
+            score_str = f"[{c.confidence_score:3d}={s:2d}+{b:2d}+{a:2d}]"
+            print(f"  {format_time(c.time)} {score_str} {c.signal_summary():40s} -> {selected}")
+        print()
 
     if not cuts:
         print("No cuts detected. Try lowering --min-confidence")
@@ -257,7 +308,44 @@ def main():
     output_files = split_video(args.input, video_subdir, cuts, duration)
     print()
 
-    clips = process_clips(video_subdir, output_files, transcribe=not args.skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
+    # Save splits.json with all detection data
+    boundaries = [0.0] + [c.time for c in cuts] + [duration]
+    splits_file = SplitsFile(
+        source_file=args.input.name,
+        duration=duration,
+        processed_date=datetime.now().isoformat(),
+        parameters=SplitParameters(
+            min_confidence=args.min_confidence,
+            min_gap=args.min_gap
+        ),
+        detection=DetectionData(
+            scenes=[SceneDetection(time=t, score=s) for t, s in scenes],
+            blacks=[BlackDetection(end_time=t, duration=d) for t, d in blacks],
+            audio_changes=[AudioChange(time=t, step=s) for t, s in audio_changes.items()]
+        ),
+        candidates=[
+            CandidateInfo(
+                time=c.time,
+                scene_score=c.scene_score,
+                black_duration=c.black_duration,
+                audio_step=c.audio_step,
+                confidence_score=c.confidence_score,
+                selected=c in cuts
+            ) for c in sorted(all_candidates, key=lambda x: x.time)
+        ],
+        segments=[
+            SegmentInfo(
+                index=i + 1,
+                start=boundaries[i],
+                end=boundaries[i + 1],
+                output_file=output_files[i].name
+            ) for i in range(len(output_files))
+        ]
+    )
+    splits_file.save(video_subdir / "splits.json")
+
+    skip_transcribe = args.skip_transcribe or args.split_only
+    clips = process_clips(video_subdir, output_files, transcribe=not skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
     metadata = VideoMetadata(
         source_file=args.input.name,
         processed_date=datetime.now().isoformat(),
@@ -267,7 +355,7 @@ def main():
 
     update_catalog(args.output_dir, video_name, args.input.name, len(clips))
 
-    generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
+    generate_gallery(args.output_dir, transcribe=not skip_transcribe)
     print()
     print("Done!")
 

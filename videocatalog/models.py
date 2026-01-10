@@ -125,6 +125,13 @@ class CutCandidate(BaseModel):
 
         return score
 
+    def score_breakdown(self) -> tuple[int, int, int]:
+        """Return (scene_pts, black_pts, audio_pts) score components."""
+        scene_pts = 40 if self.scene_score >= 25 else 25 if self.scene_score >= 15 else 15 if self.scene_score >= 10 else 5 if self.scene_score >= 6 else 0
+        black_pts = 35 if self.black_duration >= 1.0 else 25 if self.black_duration >= 0.5 else 15 if self.black_duration >= 0.2 else 0
+        audio_pts = 30 if self.audio_step >= 25 else 20 if self.audio_step >= 18 else 10 if self.audio_step >= 12 else 0
+        return scene_pts, black_pts, audio_pts
+
     def signal_summary(self) -> str:
         parts = []
         if self.scene_score > 0:
@@ -134,3 +141,72 @@ class CutCandidate(BaseModel):
         if self.audio_step > 0:
             parts.append(f"audio:{self.audio_step:.1f}dB")
         return " ".join(parts) if parts else "none"
+
+
+# Split detection data models
+
+class SceneDetection(BaseModel):
+    """A detected scene change."""
+    time: float
+    score: float
+
+
+class BlackDetection(BaseModel):
+    """A detected black frame sequence."""
+    end_time: float
+    duration: float
+
+
+class AudioChange(BaseModel):
+    """A detected audio level change."""
+    time: int
+    step: float
+
+
+class DetectionData(BaseModel):
+    """All raw detection signals."""
+    scenes: list[SceneDetection] = Field(default_factory=list)
+    blacks: list[BlackDetection] = Field(default_factory=list)
+    audio_changes: list[AudioChange] = Field(default_factory=list)
+
+
+class CandidateInfo(BaseModel):
+    """A cut candidate with selection status."""
+    time: float
+    scene_score: float = 0.0
+    black_duration: float = 0.0
+    audio_step: float = 0.0
+    confidence_score: int
+    selected: bool
+
+
+class SegmentInfo(BaseModel):
+    """A video segment created by splitting."""
+    index: int
+    start: float
+    end: float
+    output_file: str
+
+
+class SplitParameters(BaseModel):
+    """Parameters used for split detection."""
+    min_confidence: int
+    min_gap: float
+
+
+class SplitsFile(BaseModel):
+    """Complete split detection data for a video."""
+    source_file: str
+    duration: float
+    processed_date: str
+    parameters: SplitParameters
+    detection: DetectionData
+    candidates: list[CandidateInfo]
+    segments: list[SegmentInfo]
+
+    def save(self, path: Path) -> None:
+        path.write_text(self.model_dump_json(indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> 'SplitsFile':
+        return cls.model_validate_json(path.read_text())
