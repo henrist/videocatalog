@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import re
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -12,13 +13,38 @@ from pathlib import Path
 from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate
 
 
+class SubprocessError(Exception):
+    """Raised when a subprocess command fails."""
+    pass
+
+
+def _run_ffmpeg(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
+    """Run an ffmpeg/ffprobe command, optionally checking for errors."""
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        raise SubprocessError(f"Command failed: {' '.join(cmd[:3])}...\n{result.stderr[:500]}")
+    return result
+
+
+def _has_content(path: Path) -> bool:
+    """Check if file exists and has content."""
+    try:
+        return path.stat().st_size > 0
+    except FileNotFoundError:
+        return False
+
+
 def load_catalog(output_dir: Path) -> list[CatalogEntry]:
     """Load catalog.json from output directory."""
     catalog_path = output_dir / "catalog.json"
     if not catalog_path.exists():
         return []
-    data = json.loads(catalog_path.read_text())
-    return [CatalogEntry(**e) for e in data.get('videos', [])]
+    try:
+        data = json.loads(catalog_path.read_text())
+        return [CatalogEntry(**e) for e in data.get('videos', [])]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        print(f"Warning: Failed to load catalog.json: {e}")
+        return []
 
 
 def save_catalog(output_dir: Path, entries: list[CatalogEntry]) -> None:
@@ -86,7 +112,7 @@ def detect_black_frames(video_path: Path) -> list[tuple[float, float]]:
 def detect_audio_changes(video_path: Path, duration: float) -> dict[int, float]:
     """Compute per-second RMS levels and detect large changes."""
     print("  Analyzing audio levels...")
-    rms_file = Path("/tmp/rms_analysis.txt")
+    rms_file = Path(tempfile.gettempdir()) / f"rms_analysis_{os.getpid()}.txt"
 
     cmd = [
         "ffmpeg", "-i", str(video_path),
@@ -96,16 +122,19 @@ def detect_audio_changes(video_path: Path, duration: float) -> dict[int, float]:
     subprocess.run(cmd, capture_output=True, text=True)
 
     rms = {}
-    if rms_file.exists():
-        content = rms_file.read_text()
-        pattern = r"pts_time:(\d+)\s*\n.*?RMS_level=([-\d.inf]+)"
-        for match in re.finditer(pattern, content):
-            t = int(match.group(1))
-            level_str = match.group(2)
-            if level_str == '-inf' or level_str == '-':
-                continue
-            level = float(level_str)
-            rms[t] = level
+    try:
+        if rms_file.exists():
+            content = rms_file.read_text()
+            pattern = r"pts_time:(\d+)\s*\n.*?RMS_level=([-\d.inf]+)"
+            for match in re.finditer(pattern, content):
+                t = int(match.group(1))
+                level_str = match.group(2)
+                if level_str == '-inf' or level_str == '-':
+                    continue
+                level = float(level_str)
+                rms[t] = level
+    finally:
+        rms_file.unlink(missing_ok=True)
 
     changes = {}
     for t in range(1, int(duration) + 1):
@@ -125,8 +154,11 @@ def get_video_duration(video_path: Path) -> float:
         "-of", "default=noprint_wrappers=1:nokey=1",
         str(video_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return float(result.stdout.strip())
+    result = _run_ffmpeg(cmd, check=True)
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        raise SubprocessError(f"Invalid duration from ffprobe: {result.stdout!r}")
 
 
 def format_time(seconds: float) -> str:
@@ -268,7 +300,7 @@ def split_video(
             str(output_path)
         ]
 
-        subprocess.run(cmd, capture_output=True)
+        _run_ffmpeg(cmd, check=True)
 
     return output_files
 
@@ -294,7 +326,7 @@ def convert_to_mp4(video_path: Path) -> Path:
         "-b:a", "128k",
         str(mp4_path)
     ]
-    subprocess.run(cmd, capture_output=True)
+    _run_ffmpeg(cmd, check=True)
     return mp4_path
 
 
@@ -361,7 +393,7 @@ def transcribe_video(video_path: Path) -> str:
     """Transcribe video audio using Whisper."""
     txt_path = video_path.with_suffix('.txt')
 
-    if txt_path.exists() and txt_path.stat().st_size > 0:
+    if _has_content(txt_path):
         return txt_path.read_text()
 
     try:
@@ -390,7 +422,7 @@ def _transcribe_from_wav(video_path: Path, wav_path: Path) -> str:
     """Transcribe from pre-extracted WAV file."""
     txt_path = video_path.with_suffix('.txt')
 
-    if txt_path.exists() and txt_path.stat().st_size > 0:
+    if _has_content(txt_path):
         wav_path.unlink(missing_ok=True)
         return txt_path.read_text()
 
@@ -517,7 +549,7 @@ def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool 
         txt_path = mp4_file.with_suffix('.txt')
         if mp4_file in transcripts:
             transcript = transcripts[mp4_file]
-        elif txt_path.exists() and txt_path.stat().st_size > 0:
+        elif _has_content(txt_path):
             transcript = txt_path.read_text()
         else:
             transcript = ""

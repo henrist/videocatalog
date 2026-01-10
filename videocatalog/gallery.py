@@ -398,7 +398,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
     </div>
 '''
 
-    user_edits_json = json.dumps(all_user_edits)
+    # Escape </script> to prevent XSS when embedding in HTML
+    user_edits_json = json.dumps(all_user_edits).replace('</script>', '<\\/script>')
 
     html += f'''    </div>
     <div class="modal" id="modal" onclick="closeModal(event)">

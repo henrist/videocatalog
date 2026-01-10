@@ -25,15 +25,24 @@ async def index():
     return FileResponse(gallery_path)
 
 
-@app.get("/api/edits/{video_name}")
-async def get_edits(video_name: str) -> dict:
-    """Get user edits for a video."""
+def _get_video_dir(video_name: str) -> Path:
+    """Get video directory, validating it exists and is within output_dir."""
     if not hasattr(app.state, 'output_dir'):
         raise HTTPException(500, "Server not configured")
 
-    video_dir = app.state.output_dir / video_name
+    output_dir = app.state.output_dir.resolve()
+    video_dir = (output_dir / video_name).resolve()
+    if not video_dir.is_relative_to(output_dir):
+        raise HTTPException(400, "Invalid video name")
     if not video_dir.is_dir():
         raise HTTPException(404, f"Video not found: {video_name}")
+    return video_dir
+
+
+@app.get("/api/edits/{video_name}")
+async def get_edits(video_name: str) -> dict:
+    """Get user edits for a video."""
+    video_dir = _get_video_dir(video_name)
 
     edits_path = video_dir / "user_edits.json"
     if edits_path.exists():
@@ -44,12 +53,7 @@ async def get_edits(video_name: str) -> dict:
 @app.put("/api/edits/{video_name}")
 async def save_edits(video_name: str, edits: UserEditsFile) -> dict:
     """Save user edits for a video and regenerate gallery."""
-    if not hasattr(app.state, 'output_dir'):
-        raise HTTPException(500, "Server not configured")
-
-    video_dir = app.state.output_dir / video_name
-    if not video_dir.is_dir():
-        raise HTTPException(404, f"Video not found: {video_name}")
+    video_dir = _get_video_dir(video_name)
 
     edits_path = video_dir / "user_edits.json"
     edits.save(edits_path)
@@ -64,11 +68,16 @@ def create_app(directory: Path, regenerate: bool = False) -> FastAPI:
     app.state.output_dir = directory.resolve()
     app.state.regenerate = regenerate
 
+    # Track mounted routes to avoid duplicates on repeated calls
+    mounted = getattr(app.state, 'mounted_routes', set())
+
     # Mount static files for video subdirs (must be after API routes)
     for subdir in app.state.output_dir.iterdir():
-        if subdir.is_dir():
+        if subdir.is_dir() and subdir.name not in mounted:
             app.mount(f"/{subdir.name}", StaticFiles(directory=subdir), name=subdir.name)
+            mounted.add(subdir.name)
 
+    app.state.mounted_routes = mounted
     return app
 
 

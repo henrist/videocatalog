@@ -1,8 +1,10 @@
 """Command-line interface for videocatalog."""
 
 import argparse
+import multiprocessing
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from .processing import (
     update_catalog,
     _get_default_workers,
     _transcribe_worker,
+    _transcribe_from_wav,
 )
 from .gallery import generate_gallery
 
@@ -87,9 +90,6 @@ def main():
         return
 
     if args.transcribe_only:
-        import multiprocessing
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         subdirs = find_video_subdirs()
         if not subdirs:
             print("No video subdirectories found")
@@ -126,7 +126,6 @@ def main():
                 print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
                 try:
                     if transcribe_workers == 1:
-                        from .processing import _transcribe_from_wav
                         for i, (mp4, wav) in enumerate(wav_map.items(), 1):
                             print(f"    [{i}/{len(wav_map)}] {mp4.name}")
                             _transcribe_from_wav(mp4, wav)
@@ -149,7 +148,7 @@ def main():
             if metadata_path.exists():
                 metadata = VideoMetadata.load(metadata_path)
                 for clip in metadata.clips:
-                    txt_path = subdir / clip.file.replace('.mp4', '.txt')
+                    txt_path = subdir / Path(clip.file).with_suffix('.txt').name
                     if txt_path.exists():
                         clip.transcript = txt_path.read_text()
                 metadata.save(metadata_path)
