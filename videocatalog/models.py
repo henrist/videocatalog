@@ -1,12 +1,13 @@
 """Data models for videocatalog."""
 
 import json
-from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
 
 
-@dataclass
-class ClipInfo:
+class ClipInfo(BaseModel):
     """Metadata for a single video clip."""
     file: str
     name: str
@@ -15,34 +16,21 @@ class ClipInfo:
     transcript: str
 
 
-@dataclass
-class VideoMetadata:
+class VideoMetadata(BaseModel):
     """Metadata for a processed source video."""
     source_file: str
     processed_date: str
-    clips: list[ClipInfo] = field(default_factory=list)
+    clips: list[ClipInfo] = Field(default_factory=list)
 
     def save(self, path: Path) -> None:
-        data = {
-            'source_file': self.source_file,
-            'processed_date': self.processed_date,
-            'clips': [asdict(c) for c in self.clips]
-        }
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(self.model_dump_json(indent=2))
 
     @classmethod
     def load(cls, path: Path) -> 'VideoMetadata':
-        data = json.loads(path.read_text())
-        clips = [ClipInfo(**c) for c in data.get('clips', [])]
-        return cls(
-            source_file=data['source_file'],
-            processed_date=data['processed_date'],
-            clips=clips
-        )
+        return cls.model_validate_json(path.read_text())
 
 
-@dataclass
-class CatalogEntry:
+class CatalogEntry(BaseModel):
     """Entry in the master catalog."""
     name: str
     source_file: str
@@ -50,74 +38,48 @@ class CatalogEntry:
     clip_count: int
 
 
-@dataclass
-class TagInfo:
+ConfidenceLevel = Literal["high", "medium", "low"]
+
+
+class TagInfo(BaseModel):
     """A tag with confidence level."""
     name: str
-    confidence: str = "high"  # high | medium | low
+    confidence: ConfidenceLevel = "high"
 
 
-@dataclass
-class YearInfo:
+class YearInfo(BaseModel):
     """Year estimate with confidence level."""
     year: int
-    confidence: str = "low"  # high | medium | low
+    confidence: ConfidenceLevel = "low"
 
 
-@dataclass
-class EditableMetadata:
+class EditableMetadata(BaseModel):
     """User-editable metadata for a video or clip."""
-    tags: list[TagInfo] = field(default_factory=list)
+    tags: list[TagInfo] = Field(default_factory=list)
     year: YearInfo | None = None
 
 
-@dataclass
-class UserEditsFile:
+class UserEditsFile(BaseModel):
     """User edits for a video and its clips."""
-    video: EditableMetadata = field(default_factory=EditableMetadata)
-    clips: dict[str, EditableMetadata] = field(default_factory=dict)
+    video: EditableMetadata = Field(default_factory=EditableMetadata)
+    clips: dict[str, EditableMetadata] = Field(default_factory=dict)
 
     def save(self, path: Path) -> None:
-        data = {
-            'video': {
-                'tags': [asdict(t) for t in self.video.tags],
-                'year': asdict(self.video.year) if self.video.year else None
-            },
-            'clips': {
-                name: {
-                    'tags': [asdict(t) for t in meta.tags],
-                    'year': asdict(meta.year) if meta.year else None
-                }
-                for name, meta in self.clips.items()
-            }
-        }
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(self.model_dump_json(indent=2))
 
     @classmethod
     def load(cls, path: Path) -> 'UserEditsFile':
-        data = json.loads(path.read_text())
-        video_data = data.get('video', {})
-        video = EditableMetadata(
-            tags=[TagInfo(**t) for t in video_data.get('tags', [])],
-            year=YearInfo(**video_data['year']) if video_data.get('year') else None
-        )
-        clips = {}
-        for name, clip_data in data.get('clips', {}).items():
-            clips[name] = EditableMetadata(
-                tags=[TagInfo(**t) for t in clip_data.get('tags', [])],
-                year=YearInfo(**clip_data['year']) if clip_data.get('year') else None
-            )
-        return cls(video=video, clips=clips)
+        return cls.model_validate_json(path.read_text())
 
 
-@dataclass
-class CutCandidate:
+class CutCandidate(BaseModel):
     """A potential cut point with confidence scoring."""
     time: float
     scene_score: float = 0.0
     black_duration: float = 0.0
     audio_step: float = 0.0
 
+    @computed_field
     @property
     def confidence_score(self) -> int:
         """Calculate confidence score based on multiple signals."""

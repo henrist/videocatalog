@@ -2,7 +2,6 @@
 
 import html as html_lib
 import json
-from dataclasses import asdict
 from pathlib import Path
 
 from .models import VideoMetadata, UserEditsFile
@@ -30,19 +29,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         user_edits_path = subdir / "user_edits.json"
         if user_edits_path.exists():
             edits = UserEditsFile.load(user_edits_path)
-            all_user_edits[subdir.name] = {
-                'video': {
-                    'tags': [asdict(t) for t in edits.video.tags],
-                    'year': asdict(edits.video.year) if edits.video.year else None
-                },
-                'clips': {
-                    name: {
-                        'tags': [asdict(t) for t in meta.tags],
-                        'year': asdict(meta.year) if meta.year else None
-                    }
-                    for name, meta in edits.clips.items()
-                }
-            }
+            all_user_edits[subdir.name] = edits.model_dump()
 
     if not video_groups:
         print("  No processed videos found")
@@ -232,6 +219,88 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             font-style: italic;
         }
         .year-badge.inherited { font-style: italic; opacity: 0.7; }
+        .edit-btn {
+            display: none;
+            padding: 2px 8px;
+            font-size: 11px;
+            background: #335;
+            border: none;
+            border-radius: 4px;
+            color: #aaf;
+            cursor: pointer;
+        }
+        .edit-btn:hover { background: #446; }
+        body.api-available .edit-btn { display: inline-block; }
+        .edit-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1001;
+            align-items: center;
+            justify-content: center;
+        }
+        .edit-modal.active { display: flex; }
+        .edit-panel {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .edit-panel h3 { margin-bottom: 16px; }
+        .edit-section { margin-bottom: 16px; }
+        .edit-section label {
+            display: block;
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        .edit-section input, .edit-section select {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #333;
+            color: #fff;
+        }
+        .edit-section input { width: 100%; }
+        .edit-section select { margin-left: 8px; }
+        .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .tag-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: #444;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .tag-item .remove {
+            cursor: pointer;
+            color: #888;
+        }
+        .tag-item .remove:hover { color: #f66; }
+        .edit-row { display: flex; gap: 8px; align-items: center; }
+        .edit-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
+        .edit-actions button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .edit-actions .save { background: #363; color: #fff; }
+        .edit-actions .save:hover { background: #484; }
+        .edit-actions .cancel { background: #444; color: #fff; }
+        .edit-actions .cancel:hover { background: #555; }
         .modal {
             display: none;
             position: fixed;
@@ -269,11 +338,12 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
 
     for source_name, clips, subdir in video_groups:
         html += f'''    <div class="source-group" data-source="{source_name}">
-        <div class="source-header" onclick="toggleGroup(this)">
-            <span class="toggle-icon">▼</span>
-            <h2>{source_name}</h2>
+        <div class="source-header">
+            <span class="toggle-icon" onclick="toggleGroup(this.parentElement)">▼</span>
+            <h2 onclick="toggleGroup(this.parentElement)">{source_name}</h2>
             <div class="source-tags-year"></div>
-            <span class="clip-count">{len(clips)} clips</span>
+            <button class="edit-btn" onclick="event.stopPropagation(); openEdit('{source_name}', null)">edit</button>
+            <span class="clip-count" onclick="toggleGroup(this.parentElement)">{len(clips)} clips</span>
         </div>
         <div class="gallery">
 '''
@@ -286,6 +356,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 <div class="video-info">
                     <div class="video-header">
                         <div class="video-name">{clip.name}</div>
+                        <button class="edit-btn" onclick="openEdit('{source_name}', '{clip.name}')">edit</button>
                         <div class="video-duration">{clip.duration}</div>
                     </div>
                     <div class="tags-year"></div>
@@ -304,6 +375,40 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
     <div class="modal" id="modal" onclick="closeModal(event)">
         <span class="modal-close">&times;</span>
         <video id="player" controls></video>
+    </div>
+    <div class="edit-modal" id="editModal">
+        <div class="edit-panel">
+            <h3 id="editTitle">Edit</h3>
+            <div class="edit-section">
+                <label>Tags</label>
+                <div class="edit-row">
+                    <input type="text" id="newTagName" placeholder="Tag name">
+                    <select id="newTagConf">
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <button class="btn" onclick="addTag()">Add</button>
+                </div>
+                <div class="tag-list" id="tagList"></div>
+            </div>
+            <div class="edit-section">
+                <label>Year</label>
+                <div class="edit-row">
+                    <input type="number" id="editYear" placeholder="Year" style="width:100px">
+                    <select id="yearConf">
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low" selected>Low</option>
+                    </select>
+                    <button class="btn" onclick="clearYear()">Clear</button>
+                </div>
+            </div>
+            <div class="edit-actions">
+                <button class="cancel" onclick="closeEdit()">Cancel</button>
+                <button class="save" onclick="saveEdit()">Save</button>
+            </div>
+        </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
     <script>
@@ -497,6 +602,129 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         });
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal({target: modal}); });
+
+        // Edit functionality
+        const editModal = document.getElementById('editModal');
+        const editTitle = document.getElementById('editTitle');
+        const tagList = document.getElementById('tagList');
+        const newTagName = document.getElementById('newTagName');
+        const newTagConf = document.getElementById('newTagConf');
+        const editYear = document.getElementById('editYear');
+        const yearConf = document.getElementById('yearConf');
+
+        let currentEditSource = null;
+        let currentEditClip = null;
+        let currentTags = [];
+
+        // Check if API is available
+        async function checkApi() {
+            try {
+                const firstSource = groups[0]?.dataset.source;
+                if (!firstSource) return;
+                const resp = await fetch(`/api/edits/${firstSource}`);
+                if (resp.ok) {
+                    document.body.classList.add('api-available');
+                }
+            } catch (e) {}
+        }
+        checkApi();
+
+        function openEdit(source, clipName) {
+            currentEditSource = source;
+            currentEditClip = clipName;
+
+            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
+            const meta = clipName ? (edits.clips[clipName] || { tags: [], year: null }) : edits.video;
+
+            editTitle.textContent = clipName ? `Edit: ${clipName}` : `Edit: ${source} (video)`;
+            currentTags = [...(meta.tags || [])];
+            renderTagList();
+
+            if (meta.year) {
+                editYear.value = meta.year.year;
+                yearConf.value = meta.year.confidence;
+            } else {
+                editYear.value = '';
+                yearConf.value = 'low';
+            }
+
+            editModal.classList.add('active');
+        }
+
+        function closeEdit() {
+            editModal.classList.remove('active');
+            currentEditSource = null;
+            currentEditClip = null;
+        }
+
+        function renderTagList() {
+            tagList.innerHTML = currentTags.map((t, i) => `
+                <div class="tag-item">
+                    <span>${t.name}</span>
+                    <span class="conf">(${t.confidence})</span>
+                    <span class="remove" onclick="removeTag(${i})">&times;</span>
+                </div>
+            `).join('');
+        }
+
+        function addTag() {
+            const name = newTagName.value.trim();
+            if (!name) return;
+            currentTags.push({ name, confidence: newTagConf.value });
+            newTagName.value = '';
+            renderTagList();
+        }
+
+        function removeTag(idx) {
+            currentTags.splice(idx, 1);
+            renderTagList();
+        }
+
+        function clearYear() {
+            editYear.value = '';
+        }
+
+        async function saveEdit() {
+            const edits = userEdits[currentEditSource] || { video: { tags: [], year: null }, clips: {} };
+
+            const year = editYear.value ? { year: parseInt(editYear.value), confidence: yearConf.value } : null;
+            const meta = { tags: currentTags, year };
+
+            if (currentEditClip) {
+                edits.clips[currentEditClip] = meta;
+            } else {
+                edits.video = meta;
+            }
+
+            try {
+                const resp = await fetch(`/api/edits/${currentEditSource}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(edits)
+                });
+                if (resp.ok) {
+                    userEdits[currentEditSource] = edits;
+                    // Re-render affected elements
+                    if (currentEditClip) {
+                        const card = document.querySelector(`.video-card[data-source="${currentEditSource}"][data-clip="${currentEditClip}"]`);
+                        if (card) renderTagsYear(card);
+                    } else {
+                        const group = document.querySelector(`.source-group[data-source="${currentEditSource}"]`);
+                        if (group) renderSourceTagsYear(group);
+                        // Also update all clips in this group (inheritance may have changed)
+                        document.querySelectorAll(`.video-card[data-source="${currentEditSource}"]`).forEach(renderTagsYear);
+                    }
+                    closeEdit();
+                } else {
+                    alert('Failed to save');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        newTagName.addEventListener('keydown', e => { if (e.key === 'Enter') addTag(); });
+        editModal.addEventListener('click', e => { if (e.target === editModal) closeEdit(); });
     </script>
 </body>
 </html>

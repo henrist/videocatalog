@@ -43,6 +43,10 @@ def main():
                         help="Only run transcription on existing videos in output-dir")
     parser.add_argument("--force", action="store_true",
                         help="Force reprocessing even if already processed")
+    parser.add_argument("--serve", action="store_true",
+                        help="Start web server for viewing and editing")
+    parser.add_argument("--port", type=int, default=8000,
+                        help="Port for web server (default: 8000)")
 
     args = parser.parse_args()
 
@@ -60,6 +64,14 @@ def main():
                 if videos:
                     subdirs.append((subdir, videos))
         return subdirs
+
+    if args.serve:
+        from .server import run_server
+        if not args.output_dir.exists():
+            print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
+            sys.exit(1)
+        run_server(args.output_dir, port=args.port)
+        return
 
     if args.transcribe_only:
         subdirs = find_video_subdirs()
