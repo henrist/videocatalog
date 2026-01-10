@@ -36,7 +36,9 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Show detected cuts without splitting")
     parser.add_argument("--gallery-only", action="store_true",
-                        help="Only regenerate gallery from existing files in output-dir")
+                        help="Reprocess clips and regenerate gallery")
+    parser.add_argument("--html-only", action="store_true",
+                        help="Only regenerate gallery HTML (fast)")
     parser.add_argument("--skip-transcribe", action="store_true",
                         help="Skip transcription step")
     parser.add_argument("--transcribe-only", action="store_true",
@@ -101,6 +103,14 @@ def main():
                 metadata.save(metadata_path)
 
         print("\nDone!")
+        return
+
+    if args.html_only:
+        if not args.output_dir.exists():
+            print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
+            sys.exit(1)
+        generate_gallery(args.output_dir)
+        print("Done!")
         return
 
     if args.gallery_only:

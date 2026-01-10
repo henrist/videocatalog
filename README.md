@@ -33,7 +33,8 @@ open http://localhost:8000
 - `--dry-run` - Show detected cuts without splitting
 - `--skip-transcribe` - Skip whisper transcription
 - `--transcribe-only` - Only transcribe existing clips
-- `--gallery-only` - Only regenerate gallery HTML
+- `--gallery-only` - Reprocess clips and regenerate gallery
+- `--html-only` - Only regenerate gallery HTML (fast)
 - `--serve` - Start web server for editing tags/year
 - `--host` / `--port` - Server bind options
 
