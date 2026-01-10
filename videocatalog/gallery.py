@@ -1,9 +1,11 @@
 """HTML gallery generation."""
 
 import html as html_lib
+import json
+from dataclasses import asdict
 from pathlib import Path
 
-from .models import VideoMetadata
+from .models import VideoMetadata, UserEditsFile
 
 
 def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
@@ -11,6 +13,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
     print("Generating gallery...")
 
     video_groups = []
+    all_user_edits = {}  # {source_name: user_edits_data}
 
     for subdir in sorted(output_dir.iterdir()):
         if not subdir.is_dir():
@@ -22,6 +25,24 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         metadata = VideoMetadata.load(metadata_path)
         video_groups.append((subdir.name, metadata.clips, subdir))
         print(f"  Found {len(metadata.clips)} clips in {subdir.name}")
+
+        # Load user edits if exists
+        user_edits_path = subdir / "user_edits.json"
+        if user_edits_path.exists():
+            edits = UserEditsFile.load(user_edits_path)
+            all_user_edits[subdir.name] = {
+                'video': {
+                    'tags': [asdict(t) for t in edits.video.tags],
+                    'year': asdict(edits.video.year) if edits.video.year else None
+                },
+                'clips': {
+                    name: {
+                        'tags': [asdict(t) for t in meta.tags],
+                        'year': asdict(meta.year) if meta.year else None
+                    }
+                    for name, meta in edits.clips.items()
+                }
+            }
 
     if not video_groups:
         print("  No processed videos found")
@@ -87,11 +108,17 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         .source-header h2 {
             font-size: 16px;
             font-weight: 500;
-            flex: 1;
         }
         .source-header .clip-count {
             font-size: 12px;
             color: #888;
+        }
+        .source-tags-year {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            flex: 1;
         }
         .source-header .toggle-icon {
             font-size: 12px;
@@ -162,6 +189,49 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             background: #665500;
             color: #fff;
         }
+        .tags-year {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+            align-items: center;
+        }
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            background: #444;
+        }
+        .tag.confidence-high { background: #446644; }
+        .tag.confidence-medium {
+            background: transparent;
+            border: 1px dashed #668866;
+            color: #aaa;
+        }
+        .tag.confidence-low {
+            background: transparent;
+            color: #777;
+            font-style: italic;
+        }
+        .tag.inherited { font-style: italic; opacity: 0.7; }
+        .year-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background: #445566;
+        }
+        .year-badge.confidence-medium {
+            background: transparent;
+            border: 1px dashed #668888;
+        }
+        .year-badge.confidence-low {
+            background: transparent;
+            color: #777;
+            font-style: italic;
+        }
+        .year-badge.inherited { font-style: italic; opacity: 0.7; }
         .modal {
             display: none;
             position: fixed;
@@ -190,7 +260,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
 <body>
     <h1>Video Gallery</h1>
     <div class="controls">
-        <input type="text" class="search-box" id="search" placeholder="Search transcripts...">
+        <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
         <button class="btn" id="expandAll">Expand All</button>
         <button class="btn" id="collapseGroups">Collapse Sources</button>
     </div>
@@ -202,6 +272,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         <div class="source-header" onclick="toggleGroup(this)">
             <span class="toggle-icon">▼</span>
             <h2>{source_name}</h2>
+            <div class="source-tags-year"></div>
             <span class="clip-count">{len(clips)} clips</span>
         </div>
         <div class="gallery">
@@ -210,13 +281,14 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             thumbs_html = ''.join(f'<img src="{source_name}/{t}" alt="">' for t in clip.thumbs)
             video_path = f"{source_name}/{clip.file}"
             transcript_escaped = html_lib.escape(clip.transcript)
-            html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}">
+            html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}" data-clip="{clip.name}">
                 <div class="thumb-grid" onclick="playVideo('{video_path}')">{thumbs_html}</div>
                 <div class="video-info">
                     <div class="video-header">
                         <div class="video-name">{clip.name}</div>
                         <div class="video-duration">{clip.duration}</div>
                     </div>
+                    <div class="tags-year"></div>
                     <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
                     <div class="transcript">{transcript_escaped}</div>
                 </div>
@@ -226,13 +298,16 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
     </div>
 '''
 
-    html += '''    </div>
+    user_edits_json = json.dumps(all_user_edits)
+
+    html += f'''    </div>
     <div class="modal" id="modal" onclick="closeModal(event)">
         <span class="modal-close">&times;</span>
         <video id="player" controls></video>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
     <script>
+        const userEdits = {user_edits_json};
         const modal = document.getElementById('modal');
         const player = document.getElementById('player');
         const search = document.getElementById('search');
@@ -241,18 +316,98 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         const cards = document.querySelectorAll('.video-card');
         const groups = document.querySelectorAll('.source-group');
 
-        const cardData = Array.from(cards).map((card, i) => ({
-            idx: i,
-            transcript: card.dataset.transcript
-        }));
-        const fuse = new Fuse(cardData, {
-            keys: ['transcript'],
+        // Get resolved tags and year for a clip (with inheritance)
+        function getResolvedMeta(source, clipName) {{
+            const edits = userEdits[source] || {{}};
+            const videoMeta = edits.video || {{}};
+            const clipMeta = (edits.clips || {{}})[clipName] || {{}};
+
+            // Merge tags: clip tags override video tags with same name
+            const videoTags = (videoMeta.tags || []).map(t => ({{...t, inherited: true}}));
+            const clipTags = clipMeta.tags || [];
+            const clipTagNames = new Set(clipTags.map(t => t.name));
+            const mergedTags = [
+                ...clipTags,
+                ...videoTags.filter(t => !clipTagNames.has(t.name))
+            ];
+
+            // Year: clip overrides video
+            let year = clipMeta.year || null;
+            let yearInherited = false;
+            if (!year && videoMeta.year) {{
+                year = videoMeta.year;
+                yearInherited = true;
+            }}
+
+            return {{ tags: mergedTags, year, yearInherited }};
+        }}
+
+        // Render tags and year for a card
+        function renderTagsYear(card) {{
+            const source = card.dataset.source;
+            const clipName = card.dataset.clip;
+            const container = card.querySelector('.tags-year');
+            const {{ tags, year, yearInherited }} = getResolvedMeta(source, clipName);
+
+            let html = '';
+            for (const tag of tags) {{
+                const inherited = tag.inherited ? ' inherited' : '';
+                const inheritedText = tag.inherited ? ' (inherited from video)' : '';
+                const title = `${{tag.confidence}} confidence${{inheritedText}}`;
+                html += `<span class="tag confidence-${{tag.confidence}}${{inherited}}" title="${{title}}">${{tag.name}}</span>`;
+            }}
+            if (year) {{
+                const inherited = yearInherited ? ' inherited' : '';
+                const inheritedText = yearInherited ? ' (inherited from video)' : '';
+                const title = `${{year.confidence}} confidence${{inheritedText}}`;
+                html += `<span class="year-badge confidence-${{year.confidence}}${{inherited}}" title="${{title}}">${{year.year}}</span>`;
+            }}
+            container.innerHTML = html;
+        }}
+
+        // Render video-level tags/year in source headers
+        function renderSourceTagsYear(group) {{
+            const source = group.dataset.source;
+            const edits = userEdits[source] || {{}};
+            const videoMeta = edits.video || {{}};
+            const container = group.querySelector('.source-tags-year');
+
+            let html = '';
+            for (const tag of (videoMeta.tags || [])) {{
+                const title = `${{tag.confidence}} confidence`;
+                html += `<span class="tag confidence-${{tag.confidence}}" title="${{title}}">${{tag.name}}</span>`;
+            }}
+            if (videoMeta.year) {{
+                const title = `${{videoMeta.year.confidence}} confidence`;
+                html += `<span class="year-badge confidence-${{videoMeta.year.confidence}}" title="${{title}}">${{videoMeta.year.year}}</span>`;
+            }}
+            container.innerHTML = html;
+        }}
+
+        // Render all
+        groups.forEach(renderSourceTagsYear);
+        cards.forEach(renderTagsYear);
+
+        // Build search data including tags
+        const cardData = Array.from(cards).map((card, i) => {{
+            const source = card.dataset.source;
+            const clipName = card.dataset.clip;
+            const {{ tags }} = getResolvedMeta(source, clipName);
+            return {{
+                idx: i,
+                transcript: card.dataset.transcript,
+                tags: tags.map(t => t.name).join(' ')
+            }};
+        }});
+        const fuse = new Fuse(cardData, {{
+            keys: ['transcript', 'tags'],
             threshold: 0.4,
             ignoreLocation: true,
             includeMatches: true,
             minMatchCharLength: 2
-        });
+        }});'''
 
+    html += '''
         function playVideo(src) {
             player.src = src;
             modal.classList.add('active');

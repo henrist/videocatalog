@@ -51,6 +51,66 @@ class CatalogEntry:
 
 
 @dataclass
+class TagInfo:
+    """A tag with confidence level."""
+    name: str
+    confidence: str = "high"  # high | medium | low
+
+
+@dataclass
+class YearInfo:
+    """Year estimate with confidence level."""
+    year: int
+    confidence: str = "low"  # high | medium | low
+
+
+@dataclass
+class EditableMetadata:
+    """User-editable metadata for a video or clip."""
+    tags: list[TagInfo] = field(default_factory=list)
+    year: YearInfo | None = None
+
+
+@dataclass
+class UserEditsFile:
+    """User edits for a video and its clips."""
+    video: EditableMetadata = field(default_factory=EditableMetadata)
+    clips: dict[str, EditableMetadata] = field(default_factory=dict)
+
+    def save(self, path: Path) -> None:
+        data = {
+            'video': {
+                'tags': [asdict(t) for t in self.video.tags],
+                'year': asdict(self.video.year) if self.video.year else None
+            },
+            'clips': {
+                name: {
+                    'tags': [asdict(t) for t in meta.tags],
+                    'year': asdict(meta.year) if meta.year else None
+                }
+                for name, meta in self.clips.items()
+            }
+        }
+        path.write_text(json.dumps(data, indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> 'UserEditsFile':
+        data = json.loads(path.read_text())
+        video_data = data.get('video', {})
+        video = EditableMetadata(
+            tags=[TagInfo(**t) for t in video_data.get('tags', [])],
+            year=YearInfo(**video_data['year']) if video_data.get('year') else None
+        )
+        clips = {}
+        for name, clip_data in data.get('clips', {}).items():
+            clips[name] = EditableMetadata(
+                tags=[TagInfo(**t) for t in clip_data.get('tags', [])],
+                year=YearInfo(**clip_data['year']) if clip_data.get('year') else None
+            )
+        return cls(video=video, clips=clips)
+
+
+@dataclass
 class CutCandidate:
     """A potential cut point with confidence scoring."""
     time: float
