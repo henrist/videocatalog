@@ -80,6 +80,28 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             cursor: pointer;
         }
         .btn:hover { background: #3a3a3a; }
+        .tag-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .tag-filters:empty { display: none; }
+        .filter-tag {
+            padding: 4px 10px;
+            font-size: 12px;
+            background: #333;
+            border: 1px solid #444;
+            border-radius: 14px;
+            color: #aaa;
+            cursor: pointer;
+        }
+        .filter-tag:hover { background: #444; color: #fff; }
+        .filter-tag.active {
+            background: #446;
+            border-color: #668;
+            color: #fff;
+        }
         .source-group { margin-bottom: 24px; }
         .source-header {
             display: flex;
@@ -308,6 +330,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         <button class="btn" id="expandAll">Expand All</button>
         <button class="btn" id="collapseGroups">Collapse Sources</button>
     </div>
+    <div class="tag-filters" id="tagFilters"></div>
     <div id="content">
 '''
 
@@ -360,6 +383,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         const collapseBtn = document.getElementById('collapseGroups');
         const cards = document.querySelectorAll('.video-card');
         const groups = document.querySelectorAll('.source-group');
+        const tagFiltersEl = document.getElementById('tagFilters');
+        let activeFilters = new Set();
 
         // Get resolved tags and year for a clip (with inheritance)
         function getResolvedMeta(source, clipName) {{
@@ -501,35 +526,42 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             return result;
         }
 
-        search.addEventListener('input', () => {
+        // Combined filter: text search AND tag filters
+        function applyAllFilters() {
             const q = search.value.trim();
-            if (!q) {
-                cards.forEach(card => {
-                    card.classList.remove('hidden');
-                    card.querySelector('.transcript').textContent = card.dataset.transcript;
-                });
-                groups.forEach(g => g.classList.remove('collapsed'));
-                return;
-            }
-
-            const results = fuse.search(q);
-            const matchedIndices = new Set(results.map(r => r.item.idx));
+            const searchMatches = q ? new Set(fuse.search(q).map(r => r.item.idx)) : null;
 
             cards.forEach((card, i) => {
-                const isMatch = matchedIndices.has(i);
-                card.classList.toggle('hidden', !isMatch);
+                // Check text search
+                let matchesSearch = true;
+                if (searchMatches !== null) {
+                    matchesSearch = searchMatches.has(i);
+                }
 
+                // Check tag filters
+                let matchesTags = true;
+                if (activeFilters.size > 0) {
+                    const { tags } = getResolvedMeta(card.dataset.source, card.dataset.clip);
+                    const cardTagNames = new Set(tags.map(t => t.name));
+                    matchesTags = [...activeFilters].every(f => cardTagNames.has(f));
+                }
+
+                card.classList.toggle('hidden', !(matchesSearch && matchesTags));
+
+                // Update transcript highlighting
                 const transcriptEl = card.querySelector('.transcript');
-                if (isMatch) {
-                    const result = results.find(r => r.item.idx === i);
-                    transcriptEl.innerHTML = highlightMatches(card.dataset.transcript, result.matches);
+                if (q && matchesSearch) {
+                    const result = fuse.search(q).find(r => r.item.idx === i);
+                    transcriptEl.innerHTML = highlightMatches(card.dataset.transcript, result?.matches);
                 } else {
                     transcriptEl.textContent = card.dataset.transcript;
                 }
             });
 
             groups.forEach(g => g.classList.remove('collapsed'));
-        });
+        }
+
+        search.addEventListener('input', applyAllFilters);
 
         let allExpanded = false;
         expandBtn.addEventListener('click', () => {
@@ -681,6 +713,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                         // Also update all clips in this group (inheritance may have changed)
                         document.querySelectorAll(`.tags-year[data-source="${source}"]`).forEach(renderTagsYear);
                     }
+                    // Update tag filters
+                    renderTagFilters();
                 }
             } catch (e) {
                 console.error('Save failed:', e);
@@ -832,6 +866,43 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 closePopup();
             }
         });
+
+        // Tag filtering
+        function getAllTags() {
+            const tags = new Map(); // tag name -> count
+            for (const source in userEdits) {
+                const edits = userEdits[source];
+                const videoTags = edits.video?.tags || [];
+                videoTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+                for (const clipName in edits.clips || {}) {
+                    const clipTags = edits.clips[clipName]?.tags || [];
+                    clipTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+                }
+            }
+            return [...tags.entries()].sort((a, b) => b[1] - a[1]); // sort by count desc
+        }
+
+        function renderTagFilters() {
+            const tags = getAllTags();
+            tagFiltersEl.innerHTML = tags.map(([name, count]) =>
+                `<span class="filter-tag${activeFilters.has(name) ? ' active' : ''}" data-tag="${name}">${name} (${count})</span>`
+            ).join('');
+        }
+
+        tagFiltersEl.addEventListener('click', (e) => {
+            const filterTag = e.target.closest('.filter-tag');
+            if (!filterTag) return;
+            const tagName = filterTag.dataset.tag;
+            if (activeFilters.has(tagName)) {
+                activeFilters.delete(tagName);
+            } else {
+                activeFilters.add(tagName);
+            }
+            renderTagFilters();
+            applyAllFilters();
+        });
+
+        renderTagFilters();
     </script>
 </body>
 </html>
