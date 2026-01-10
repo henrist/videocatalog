@@ -616,8 +616,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         let currentEditClip = null;
         let currentTags = [];
 
-        // Check if API is available
+        // Check if API is available (skip for file:// to avoid CORS errors)
         async function checkApi() {
+            if (location.protocol === 'file:') return;
             try {
                 const firstSource = groups[0]?.dataset.source;
                 if (!firstSource) return;
