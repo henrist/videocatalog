@@ -339,11 +339,19 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             align-items: center;
             justify-content: center;
         }
-        .modal.active { display: flex; }
+        .modal.active { display: flex; flex-direction: column; }
         .modal video {
             max-width: 90%;
             max-height: 85vh;
         }
+        .modal-info {
+            color: white;
+            text-align: center;
+            margin-bottom: 8px;
+            max-width: 90%;
+        }
+        .modal-info .clip-name { font-weight: bold; }
+        .modal-info .clip-tags { opacity: 0.8; font-size: 0.9em; }
         .modal-close {
             position: absolute;
             top: 20px;
@@ -381,8 +389,8 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             thumbs_html = ''.join(f'<img src="{source_name}/{t}" alt="">' for t in clip.thumbs)
             video_path = f"{source_name}/{clip.file}"
             transcript_escaped = html_lib.escape(clip.transcript)
-            html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}" data-clip="{clip.name}">
-                <div class="thumb-grid" onclick="playVideo('{video_path}')">{thumbs_html}</div>
+            html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}" data-clip="{clip.name}" data-video="{video_path}">
+                <div class="thumb-grid" onclick="playVideo(this.closest('.video-card'))">{thumbs_html}</div>
                 <div class="video-info">
                     <div class="video-header">
                         <div class="video-name">{clip.name}</div>
@@ -404,14 +412,19 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
     html += f'''    </div>
     <div class="modal" id="modal" onclick="closeModal(event)">
         <span class="modal-close">&times;</span>
-        <video id="player" controls></video>
+        <div class="modal-info" id="modalInfo"></div>
+        <video id="player1" controls></video>
+        <video id="player2" controls style="display:none"></video>
     </div>
     <div class="inline-popup" id="inlinePopup"></div>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
     <script>
         const userEdits = {user_edits_json};
         const modal = document.getElementById('modal');
-        const player = document.getElementById('player');
+        const player1 = document.getElementById('player1');
+        const player2 = document.getElementById('player2');
+        let activePlayer = player1;
+        let preloadPlayer = player2;
         const search = document.getElementById('search');
         const expandBtn = document.getElementById('expandAll');
         const collapseBtn = document.getElementById('collapseGroups');
@@ -562,17 +575,88 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }});'''
 
     html += '''
-        function playVideo(src) {
-            player.src = src;
-            modal.classList.add('active');
-            player.play();
+        let currentCard = null;
+        let nextCard = null;
+        const modalInfo = document.getElementById('modalInfo');
+
+        function updateModalInfo(card) {
+            const name = card.querySelector('.video-name').textContent;
+            const tagsEl = card.querySelector('.tags-year');
+            const tagSpans = tagsEl ? Array.from(tagsEl.querySelectorAll('.tag, .year-badge')).map(el => el.textContent).join(' ') : '';
+            modalInfo.innerHTML = `<div class="clip-name">${name}</div>` +
+                (tagSpans ? `<div class="clip-tags">${tagSpans}</div>` : '');
         }
+
+        function playVideo(card) {
+            currentCard = card;
+            nextCard = getNextCardInGroup(card);
+
+            // Check if preloadPlayer already has this video ready
+            if (preloadPlayer.src.endsWith(card.dataset.video) && preloadPlayer.readyState >= 3) {
+                // Swap players
+                activePlayer.pause();
+                activePlayer.style.display = 'none';
+                preloadPlayer.style.display = '';
+                [activePlayer, preloadPlayer] = [preloadPlayer, activePlayer];
+                activePlayer.play();
+            } else {
+                activePlayer.src = card.dataset.video;
+                activePlayer.play();
+            }
+
+            updateModalInfo(card);
+            modal.classList.add('active');
+
+            // Start preloading next
+            if (nextCard) {
+                preloadPlayer.src = nextCard.dataset.video;
+                preloadPlayer.load();
+            }
+        }
+
+        function getNextCardInGroup(card) {
+            const group = card.closest('.source-group');
+            const cards = Array.from(group.querySelectorAll('.video-card:not(.hidden)'));
+            const idx = cards.indexOf(card);
+            return cards[idx + 1] || null;
+        }
+
+        function handleEnded() {
+            if (nextCard) {
+                // Swap to preloaded player immediately
+                activePlayer.style.display = 'none';
+                preloadPlayer.style.display = '';
+                [activePlayer, preloadPlayer] = [preloadPlayer, activePlayer];
+
+                currentCard = nextCard;
+                nextCard = getNextCardInGroup(currentCard);
+                updateModalInfo(currentCard);
+                activePlayer.play();
+
+                // Preload the next one
+                if (nextCard) {
+                    preloadPlayer.src = nextCard.dataset.video;
+                    preloadPlayer.load();
+                }
+            } else {
+                closeModal({target: modal});
+            }
+        }
+
+        player1.onended = handleEnded;
+        player2.onended = handleEnded;
 
         function closeModal(e) {
             if (e.target === modal || e.target.classList.contains('modal-close')) {
                 modal.classList.remove('active');
-                player.pause();
-                player.src = '';
+                player1.pause();
+                player2.pause();
+                player1.src = '';
+                player2.src = '';
+                player1.style.display = '';
+                player2.style.display = 'none';
+                activePlayer = player1;
+                preloadPlayer = player2;
             }
         }
 
