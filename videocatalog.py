@@ -1011,10 +1011,19 @@ def main():
         generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
         return
 
-    # Remove existing output if forcing
+    # Remove existing output if forcing (but keep transcripts)
     if video_subdir.exists() and args.force:
-        print(f"Removing existing output: {video_subdir}")
-        shutil.rmtree(video_subdir)
+        print(f"Removing existing output (keeping transcripts): {video_subdir}")
+        # Remove mp4 files, thumbs, and metadata but keep .txt files
+        for f in video_subdir.glob("*.mp4"):
+            f.unlink()
+        for f in video_subdir.glob("*.wav"):
+            f.unlink()
+        thumbs_dir = video_subdir / "thumbs"
+        if thumbs_dir.exists():
+            shutil.rmtree(thumbs_dir)
+        if metadata_path.exists():
+            metadata_path.unlink()
 
     print(f"Analyzing: {args.input}")
     print()
