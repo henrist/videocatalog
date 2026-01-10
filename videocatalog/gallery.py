@@ -103,7 +103,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         .source-tags-year {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 4px;
             align-items: center;
             flex: 1;
         }
@@ -179,134 +179,103 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         .tags-year {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 8px;
+            gap: 4px;
             align-items: center;
+            flex: 1;
+            margin-left: 8px;
         }
-        .tag {
-            display: inline-block;
+        .tag, .year-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
             padding: 2px 8px;
             border-radius: 12px;
             font-size: 11px;
-            background: #444;
+            background: #555;
         }
-        .tag.confidence-high { background: #446644; }
-        .tag.confidence-medium {
-            background: transparent;
-            border: 1px dashed #668866;
-            color: #aaa;
+        .tag::before, .year-badge::before {
+            font-size: 8px;
         }
-        .tag.confidence-low {
-            background: transparent;
-            color: #777;
-            font-style: italic;
-        }
-        .tag.inherited { font-style: italic; opacity: 0.7; }
-        .year-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            background: #445566;
-        }
-        .year-badge.confidence-medium {
-            background: transparent;
-            border: 1px dashed #668888;
-        }
-        .year-badge.confidence-low {
-            background: transparent;
-            color: #777;
-            font-style: italic;
-        }
-        .year-badge.inherited { font-style: italic; opacity: 0.7; }
-        .edit-btn {
+        .year-badge { border-radius: 4px; }
+        /* High confidence: fully visible */
+        .confidence-high { opacity: 1; }
+        /* Medium confidence: slightly faded with ? */
+        .confidence-medium { opacity: 0.75; }
+        .confidence-medium::after { content: "?"; margin-left: 2px; opacity: 0.7; }
+        /* Low confidence: faded with ?? */
+        .confidence-low { opacity: 0.55; }
+        .confidence-low::after { content: "??"; margin-left: 2px; opacity: 0.7; }
+        /* Inherited: italic */
+        .tag.inherited, .year-badge.inherited { font-style: italic; opacity: 0.5; }
+        /* Inline editing */
+        .tag.editable, .year-badge.editable { cursor: pointer; }
+        .tag.editable:hover, .year-badge.editable:hover { filter: brightness(1.2); }
+        .add-btn {
             display: none;
-            padding: 2px 8px;
+            padding: 2px 4px;
             font-size: 11px;
-            background: #335;
+            background: none;
             border: none;
-            border-radius: 4px;
-            color: #aaf;
+            color: #666;
             cursor: pointer;
         }
-        .edit-btn:hover { background: #446; }
-        body.api-available .edit-btn { display: inline-block; }
-        .edit-modal {
+        .add-btn:hover { color: #aaa; }
+        body.api-available .video-card:hover .add-btn,
+        body.api-available .source-header:hover .add-btn { display: inline-block; }
+        .inline-popup {
             display: none;
             position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            z-index: 1001;
-            align-items: center;
-            justify-content: center;
-        }
-        .edit-modal.active { display: flex; }
-        .edit-panel {
-            background: #2a2a2a;
-            border-radius: 8px;
-            padding: 20px;
-            width: 90%;
-            max-width: 500px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .edit-panel h3 { margin-bottom: 16px; }
-        .edit-section { margin-bottom: 16px; }
-        .edit-section label {
-            display: block;
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 4px;
-        }
-        .edit-section input, .edit-section select {
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 6px;
             padding: 8px;
-            font-size: 14px;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .inline-popup.active { display: block; }
+        .inline-popup input, .inline-popup select {
+            padding: 6px 8px;
+            font-size: 13px;
             border: 1px solid #444;
             border-radius: 4px;
-            background: #333;
+            background: #2a2a2a;
             color: #fff;
         }
-        .edit-section input { width: 100%; }
-        .edit-section select { margin-left: 8px; }
-        .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-        .tag-item {
+        .inline-popup input { width: 120px; }
+        .inline-popup input.year-input { width: 70px; }
+        .inline-popup .popup-row {
             display: flex;
+            gap: 6px;
             align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            background: #444;
-            border-radius: 12px;
-            font-size: 12px;
+            margin-bottom: 6px;
         }
-        .tag-item .conf {
-            cursor: pointer;
-            color: #aaa;
-        }
-        .tag-item .conf:hover { color: #fff; }
-        .tag-item .remove {
-            cursor: pointer;
+        .inline-popup .popup-row:last-child { margin-bottom: 0; }
+        .inline-popup .conf-label {
+            font-size: 10px;
             color: #888;
+            margin-right: 4px;
         }
-        .tag-item .remove:hover { color: #f66; }
-        .edit-row { display: flex; gap: 8px; align-items: center; }
-        label.inline { font-size: 12px; color: #aaa; margin-left: 8px; }
-        .edit-actions {
-            display: flex;
-            gap: 8px;
-            justify-content: flex-end;
-            margin-top: 16px;
+        .inline-popup .conf-btn {
+            padding: 4px 8px;
+            font-size: 11px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #444;
+            color: #ccc;
+            cursor: pointer;
         }
-        .edit-actions button {
-            padding: 8px 16px;
+        .inline-popup .conf-btn:hover { background: #555; }
+        .inline-popup .conf-btn.active { background: #666; border-color: #888; color: #fff; }
+        .inline-popup .delete-btn {
+            padding: 4px 8px;
+            font-size: 11px;
             border: none;
             border-radius: 4px;
+            background: #633;
+            color: #faa;
             cursor: pointer;
         }
-        .edit-actions .save { background: #363; color: #fff; }
-        .edit-actions .save:hover { background: #484; }
-        .edit-actions .cancel { background: #444; color: #fff; }
-        .edit-actions .cancel:hover { background: #555; }
+        .inline-popup .delete-btn:hover { background: #844; }
         .modal {
             display: none;
             position: fixed;
@@ -347,8 +316,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         <div class="source-header">
             <span class="toggle-icon" onclick="toggleGroup(this.parentElement)">▼</span>
             <h2 onclick="toggleGroup(this.parentElement)">{source_name}</h2>
-            <div class="source-tags-year"></div>
-            <button class="edit-btn" onclick="event.stopPropagation(); openEdit('{source_name}', null)">edit</button>
+            <div class="source-tags-year" data-source="{source_name}"></div>
             <span class="clip-count" onclick="toggleGroup(this.parentElement)">{len(clips)} clips</span>
         </div>
         <div class="gallery">
@@ -362,10 +330,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 <div class="video-info">
                     <div class="video-header">
                         <div class="video-name">{clip.name}</div>
-                        <button class="edit-btn" onclick="openEdit('{source_name}', '{clip.name}')">edit</button>
+                        <div class="tags-year" data-source="{source_name}" data-clip="{clip.name}"></div>
                         <div class="video-duration">{clip.duration}</div>
                     </div>
-                    <div class="tags-year"></div>
                     <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
                     <div class="transcript">{transcript_escaped}</div>
                 </div>
@@ -382,42 +349,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         <span class="modal-close">&times;</span>
         <video id="player" controls></video>
     </div>
-    <div class="edit-modal" id="editModal">
-        <div class="edit-panel">
-            <h3 id="editTitle">Edit</h3>
-            <div class="edit-section">
-                <label>Tags</label>
-                <div class="edit-row">
-                    <input type="text" id="newTagName" placeholder="Tag name">
-                    <label class="inline">Confidence:</label>
-                    <select id="newTagConf">
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low">Low</option>
-                    </select>
-                    <button class="btn" onclick="addTag()">Add</button>
-                </div>
-                <div class="tag-list" id="tagList"></div>
-            </div>
-            <div class="edit-section">
-                <label>Year</label>
-                <div class="edit-row">
-                    <input type="number" id="editYear" placeholder="Year" style="width:100px">
-                    <label class="inline">Confidence:</label>
-                    <select id="yearConf">
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low" selected>Low</option>
-                    </select>
-                    <button class="btn" onclick="clearYear()">Clear</button>
-                </div>
-            </div>
-            <div class="edit-actions">
-                <button class="cancel" onclick="closeEdit()">Cancel</button>
-                <button class="save" onclick="saveEdit()">Save</button>
-            </div>
-        </div>
-    </div>
+    <div class="inline-popup" id="inlinePopup"></div>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
     <script>
         const userEdits = {user_edits_json};
@@ -455,51 +387,65 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             return {{ tags: mergedTags, year, yearInherited }};
         }}
 
-        // Render tags and year for a card
-        function renderTagsYear(card) {{
-            const source = card.dataset.source;
-            const clipName = card.dataset.clip;
-            const container = card.querySelector('.tags-year');
+        // Render tags and year for a clip
+        function renderTagsYear(container) {{
+            const source = container.dataset.source;
+            const clipName = container.dataset.clip;
             const {{ tags, year, yearInherited }} = getResolvedMeta(source, clipName);
 
             let html = '';
-            for (const tag of tags) {{
+            for (let i = 0; i < tags.length; i++) {{
+                const tag = tags[i];
                 const inherited = tag.inherited ? ' inherited' : '';
                 const inheritedText = tag.inherited ? ' (inherited from video)' : '';
-                const title = `${{tag.confidence}} confidence${{inheritedText}}`;
-                html += `<span class="tag confidence-${{tag.confidence}}${{inherited}}" title="${{title}}">${{tag.name}}</span>`;
+                const title = `${{tag.confidence}} confidence${{inheritedText}}. Click to edit.`;
+                const editable = !tag.inherited ? ' editable' : '';
+                html += `<span class="tag confidence-${{tag.confidence}}${{inherited}}${{editable}}" title="${{title}}" data-idx="${{i}}" data-name="${{tag.name}}" data-conf="${{tag.confidence}}" data-inherited="${{tag.inherited || false}}">${{tag.name}}</span>`;
             }}
             if (year) {{
                 const inherited = yearInherited ? ' inherited' : '';
                 const inheritedText = yearInherited ? ' (inherited from video)' : '';
-                const title = `${{year.confidence}} confidence${{inheritedText}}`;
-                html += `<span class="year-badge confidence-${{year.confidence}}${{inherited}}" title="${{title}}">${{year.year}}</span>`;
+                const title = `${{year.confidence}} confidence${{inheritedText}}. Click to edit.`;
+                const editable = !yearInherited ? ' editable' : '';
+                html += `<span class="year-badge confidence-${{year.confidence}}${{inherited}}${{editable}}" title="${{title}}" data-year="${{year.year}}" data-conf="${{year.confidence}}" data-inherited="${{yearInherited}}">${{year.year}}</span>`;
+            }}
+            // Add buttons (only shown when API available)
+            html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
+            if (!year || yearInherited) {{
+                html += `<button class="add-btn" data-action="add-year">+year</button>`;
             }}
             container.innerHTML = html;
         }}
 
         // Render video-level tags/year in source headers
-        function renderSourceTagsYear(group) {{
-            const source = group.dataset.source;
+        function renderSourceTagsYear(container) {{
+            const source = container.dataset.source;
             const edits = userEdits[source] || {{}};
             const videoMeta = edits.video || {{}};
-            const container = group.querySelector('.source-tags-year');
+            const tags = videoMeta.tags || [];
+            const year = videoMeta.year;
 
             let html = '';
-            for (const tag of (videoMeta.tags || [])) {{
-                const title = `${{tag.confidence}} confidence`;
-                html += `<span class="tag confidence-${{tag.confidence}}" title="${{title}}">${{tag.name}}</span>`;
+            for (let i = 0; i < tags.length; i++) {{
+                const tag = tags[i];
+                const title = `${{tag.confidence}} confidence. Click to edit.`;
+                html += `<span class="tag confidence-${{tag.confidence}} editable" title="${{title}}" data-idx="${{i}}" data-name="${{tag.name}}" data-conf="${{tag.confidence}}">${{tag.name}}</span>`;
             }}
-            if (videoMeta.year) {{
-                const title = `${{videoMeta.year.confidence}} confidence`;
-                html += `<span class="year-badge confidence-${{videoMeta.year.confidence}}" title="${{title}}">${{videoMeta.year.year}}</span>`;
+            if (year) {{
+                const title = `${{year.confidence}} confidence. Click to edit.`;
+                html += `<span class="year-badge confidence-${{year.confidence}} editable" title="${{title}}" data-year="${{year.year}}" data-conf="${{year.confidence}}">${{year.year}}</span>`;
+            }}
+            // Add buttons (only shown when API available)
+            html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
+            if (!year) {{
+                html += `<button class="add-btn" data-action="add-year">+year</button>`;
             }}
             container.innerHTML = html;
         }}
 
-        // Render all
-        groups.forEach(renderSourceTagsYear);
-        cards.forEach(renderTagsYear);
+        // Render all tags/year
+        document.querySelectorAll('.source-tags-year').forEach(renderSourceTagsYear);
+        document.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
 
         // Build search data including tags
         const cardData = Array.from(cards).map((card, i) => {{
@@ -611,18 +557,9 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal({target: modal}); });
 
-        // Edit functionality
-        const editModal = document.getElementById('editModal');
-        const editTitle = document.getElementById('editTitle');
-        const tagList = document.getElementById('tagList');
-        const newTagName = document.getElementById('newTagName');
-        const newTagConf = document.getElementById('newTagConf');
-        const editYear = document.getElementById('editYear');
-        const yearConf = document.getElementById('yearConf');
-
-        let currentEditSource = null;
-        let currentEditClip = null;
-        let currentTags = [];
+        // Inline editing functionality
+        const popup = document.getElementById('inlinePopup');
+        let popupContext = null; // {source, clipName, type, tagIdx}
 
         // Check if API is available (skip for file:// to avoid CORS errors)
         async function checkApi() {
@@ -638,109 +575,263 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
         checkApi();
 
-        function openEdit(source, clipName) {
-            currentEditSource = source;
-            currentEditClip = clipName;
-
-            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
-            const meta = clipName ? (edits.clips[clipName] || { tags: [], year: null }) : edits.video;
-
-            editTitle.textContent = clipName ? `Edit: ${clipName}` : `Edit: ${source} (video)`;
-            currentTags = [...(meta.tags || [])];
-            renderTagList();
-
-            if (meta.year) {
-                editYear.value = meta.year.year;
-                yearConf.value = meta.year.confidence;
-            } else {
-                editYear.value = '';
-                yearConf.value = 'low';
-            }
-
-            editModal.classList.add('active');
+        function closePopup() {
+            popup.classList.remove('active');
+            popupContext = null;
         }
 
-        function closeEdit() {
-            editModal.classList.remove('active');
-            currentEditSource = null;
-            currentEditClip = null;
+        function positionPopup(element) {
+            const rect = element.getBoundingClientRect();
+            popup.style.left = rect.left + 'px';
+            popup.style.top = (rect.bottom + 4) + 'px';
         }
 
-        function renderTagList() {
-            tagList.innerHTML = currentTags.map((t, i) => `
-                <div class="tag-item">
-                    <span>${t.name}</span>
-                    <span class="conf" onclick="cycleConf(${i})" title="Click to change">(${t.confidence})</span>
-                    <span class="remove" onclick="removeTag(${i})">&times;</span>
+        function confButtons(current) {
+            const btns = ['high', 'medium', 'low'].map(c =>
+                `<button class="conf-btn${c === current ? ' active' : ''}" data-conf="${c}">${c}</button>`
+            ).join('');
+            return `<span class="conf-label">Confidence:</span>${btns}`;
+        }
+
+        function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf) {
+            popupContext = { source, clipName, type: 'edit-tag', tagIdx };
+            popup.innerHTML = `
+                <div class="popup-row">
+                    <input type="text" class="tag-name-input" value="${tagName}">
                 </div>
-            `).join('');
+                <div class="popup-row">
+                    ${confButtons(tagConf)}
+                    <button class="delete-btn">Delete</button>
+                </div>
+            `;
+            positionPopup(element);
+            popup.classList.add('active');
+            popup.querySelector('.tag-name-input').focus();
         }
 
-        function cycleConf(idx) {
-            const levels = ['high', 'medium', 'low'];
-            const curr = levels.indexOf(currentTags[idx].confidence);
-            currentTags[idx].confidence = levels[(curr + 1) % 3];
-            renderTagList();
+        function showYearPopup(element, source, clipName, year, conf) {
+            popupContext = { source, clipName, type: 'edit-year' };
+            popup.innerHTML = `
+                <div class="popup-row">
+                    <input type="number" class="year-input" value="${year}" placeholder="Year">
+                </div>
+                <div class="popup-row">
+                    ${confButtons(conf)}
+                    <button class="delete-btn">Delete</button>
+                </div>
+            `;
+            positionPopup(element);
+            popup.classList.add('active');
+            popup.querySelector('.year-input').focus();
         }
 
-        function addTag() {
-            const name = newTagName.value.trim();
-            if (!name) return;
-            currentTags.push({ name, confidence: newTagConf.value });
-            newTagName.value = '';
-            renderTagList();
+        function showAddTagPopup(element, source, clipName) {
+            popupContext = { source, clipName, type: 'add-tag' };
+            popup.innerHTML = `
+                <div class="popup-row">
+                    <input type="text" class="tag-name-input" placeholder="Tag name">
+                </div>
+                <div class="popup-row">
+                    ${confButtons('high')}
+                </div>
+            `;
+            positionPopup(element);
+            popup.classList.add('active');
+            popup.querySelector('.tag-name-input').focus();
         }
 
-        function removeTag(idx) {
-            currentTags.splice(idx, 1);
-            renderTagList();
+        function showAddYearPopup(element, source, clipName) {
+            popupContext = { source, clipName, type: 'add-year' };
+            popup.innerHTML = `
+                <div class="popup-row">
+                    <input type="number" class="year-input" placeholder="Year">
+                </div>
+                <div class="popup-row">
+                    ${confButtons('low')}
+                </div>
+            `;
+            positionPopup(element);
+            popup.classList.add('active');
+            popup.querySelector('.year-input').focus();
         }
 
-        function clearYear() {
-            editYear.value = '';
-        }
-
-        async function saveEdit() {
-            const edits = userEdits[currentEditSource] || { video: { tags: [], year: null }, clips: {} };
-
-            const year = editYear.value ? { year: parseInt(editYear.value), confidence: yearConf.value } : null;
-            const meta = { tags: currentTags, year };
-
-            if (currentEditClip) {
-                edits.clips[currentEditClip] = meta;
+        async function saveEdits(source, clipName, newMeta) {
+            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
+            if (clipName) {
+                edits.clips[clipName] = newMeta;
             } else {
-                edits.video = meta;
+                edits.video = newMeta;
             }
 
             try {
-                const resp = await fetch(`/api/edits/${currentEditSource}`, {
+                const resp = await fetch(`/api/edits/${source}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(edits)
                 });
                 if (resp.ok) {
-                    userEdits[currentEditSource] = edits;
+                    userEdits[source] = edits;
                     // Re-render affected elements
-                    if (currentEditClip) {
-                        const card = document.querySelector(`.video-card[data-source="${currentEditSource}"][data-clip="${currentEditClip}"]`);
-                        if (card) renderTagsYear(card);
+                    if (clipName) {
+                        const container = document.querySelector(`.tags-year[data-source="${source}"][data-clip="${clipName}"]`);
+                        if (container) renderTagsYear(container);
                     } else {
-                        const group = document.querySelector(`.source-group[data-source="${currentEditSource}"]`);
-                        if (group) renderSourceTagsYear(group);
+                        const container = document.querySelector(`.source-tags-year[data-source="${source}"]`);
+                        if (container) renderSourceTagsYear(container);
                         // Also update all clips in this group (inheritance may have changed)
-                        document.querySelectorAll(`.video-card[data-source="${currentEditSource}"]`).forEach(renderTagsYear);
+                        document.querySelectorAll(`.tags-year[data-source="${source}"]`).forEach(renderTagsYear);
                     }
-                    closeEdit();
-                } else {
-                    alert('Failed to save');
                 }
             } catch (e) {
-                alert('Error: ' + e.message);
+                console.error('Save failed:', e);
             }
         }
 
-        newTagName.addEventListener('keydown', e => { if (e.key === 'Enter') addTag(); });
-        editModal.addEventListener('click', e => { if (e.target === editModal) closeEdit(); });
+        function getCurrentMeta(source, clipName) {
+            const edits = userEdits[source] || { video: { tags: [], year: null }, clips: {} };
+            if (clipName) {
+                return edits.clips[clipName] || { tags: [], year: null };
+            }
+            return edits.video || { tags: [], year: null };
+        }
+
+        // Handle clicks on tags-year containers (event delegation)
+        document.addEventListener('click', async (e) => {
+            const tag = e.target.closest('.tag.editable');
+            const yearBadge = e.target.closest('.year-badge.editable');
+            const addBtn = e.target.closest('.add-btn');
+            const confBtn = e.target.closest('.conf-btn');
+            const deleteBtn = e.target.closest('.delete-btn');
+
+            // Close popup if clicking outside
+            if (!e.target.closest('.inline-popup') && !tag && !yearBadge && !addBtn) {
+                if (popup.classList.contains('active')) {
+                    // Save any pending input before closing
+                    await handlePopupSave();
+                    closePopup();
+                }
+                return;
+            }
+
+            // Handle confidence button in popup
+            if (confBtn && popupContext) {
+                popup.querySelectorAll('.conf-btn').forEach(b => b.classList.remove('active'));
+                confBtn.classList.add('active');
+                // Auto-save for edit-tag and edit-year
+                if (popupContext.type === 'edit-tag' || popupContext.type === 'edit-year') {
+                    await handlePopupSave();
+                }
+                return;
+            }
+
+            // Handle delete button in popup
+            if (deleteBtn && popupContext) {
+                const { source, clipName, type, tagIdx } = popupContext;
+                const meta = getCurrentMeta(source, clipName);
+
+                if (type === 'edit-tag') {
+                    meta.tags = meta.tags.filter((_, i) => i !== tagIdx);
+                } else if (type === 'edit-year') {
+                    meta.year = null;
+                }
+
+                await saveEdits(source, clipName, meta);
+                closePopup();
+                return;
+            }
+
+            // Handle add buttons
+            if (addBtn) {
+                const container = addBtn.closest('.tags-year, .source-tags-year');
+                const source = container.dataset.source;
+                const clipName = container.dataset.clip || null;
+                const action = addBtn.dataset.action;
+
+                closePopup();
+                if (action === 'add-tag') {
+                    showAddTagPopup(addBtn, source, clipName);
+                } else if (action === 'add-year') {
+                    showAddYearPopup(addBtn, source, clipName);
+                }
+                return;
+            }
+
+            // Handle tag click
+            if (tag && tag.dataset.inherited !== 'true') {
+                const container = tag.closest('.tags-year, .source-tags-year');
+                const source = container.dataset.source;
+                const clipName = container.dataset.clip || null;
+                closePopup();
+                showTagPopup(tag, source, clipName, parseInt(tag.dataset.idx), tag.dataset.name, tag.dataset.conf);
+                return;
+            }
+
+            // Handle year badge click
+            if (yearBadge && yearBadge.dataset.inherited !== 'true') {
+                const container = yearBadge.closest('.tags-year, .source-tags-year');
+                const source = container.dataset.source;
+                const clipName = container.dataset.clip || null;
+                closePopup();
+                showYearPopup(yearBadge, source, clipName, yearBadge.dataset.year, yearBadge.dataset.conf);
+                return;
+            }
+        });
+
+        async function handlePopupSave() {
+            if (!popupContext) return;
+
+            const { source, clipName, type, tagIdx } = popupContext;
+            const meta = getCurrentMeta(source, clipName);
+            const activeConf = popup.querySelector('.conf-btn.active')?.dataset.conf || 'high';
+
+            if (type === 'edit-tag') {
+                const nameInput = popup.querySelector('.tag-name-input');
+                const newName = nameInput?.value.trim();
+                if (newName && meta.tags[tagIdx]) {
+                    meta.tags[tagIdx] = { name: newName, confidence: activeConf };
+                    await saveEdits(source, clipName, meta);
+                }
+            } else if (type === 'edit-year') {
+                const yearInput = popup.querySelector('.year-input');
+                const newYear = parseInt(yearInput?.value);
+                if (newYear) {
+                    meta.year = { year: newYear, confidence: activeConf };
+                    await saveEdits(source, clipName, meta);
+                }
+            } else if (type === 'add-tag') {
+                const nameInput = popup.querySelector('.tag-name-input');
+                const newName = nameInput?.value.trim();
+                if (newName) {
+                    meta.tags = meta.tags || [];
+                    meta.tags.push({ name: newName, confidence: activeConf });
+                    await saveEdits(source, clipName, meta);
+                }
+            } else if (type === 'add-year') {
+                const yearInput = popup.querySelector('.year-input');
+                const newYear = parseInt(yearInput?.value);
+                if (newYear) {
+                    meta.year = { year: newYear, confidence: activeConf };
+                    await saveEdits(source, clipName, meta);
+                }
+            }
+        }
+
+        // Handle Enter key in popup inputs
+        popup.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                await handlePopupSave();
+                closePopup();
+            } else if (e.key === 'Escape') {
+                closePopup();
+            }
+        });
+
+        // Also close popup on Escape globally
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && popup.classList.contains('active')) {
+                closePopup();
+            }
+        });
     </script>
 </body>
 </html>
