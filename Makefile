@@ -1,8 +1,9 @@
-.PHONY: build build-gpu split transcribe gallery clean help
+.PHONY: build build-gpu split transcribe gallery serve clean help
 
 IMAGE := videocatalog
 OUTPUT := output
 CACHE := cache
+PORT := 8000
 
 # Default input file (override with: make split INPUT=video.avi)
 INPUT ?=
@@ -13,11 +14,13 @@ help:
 	@echo "  make split INPUT=video.avi    Split video + transcribe + gallery"
 	@echo "  make transcribe               Transcribe existing videos"
 	@echo "  make gallery                  Regenerate gallery only"
+	@echo "  make serve                    Start web server for viewing/editing"
 	@echo "  make clean                    Remove output files"
 	@echo ""
 	@echo "Options:"
 	@echo "  INPUT=file.avi                Input video file"
 	@echo "  OUTPUT=dir                    Output directory (default: output)"
+	@echo "  PORT=8000                     Server port (default: 8000)"
 	@echo "  ARGS='--dry-run'              Extra arguments"
 
 build:
@@ -50,6 +53,13 @@ gallery:
 		-v "$(CURDIR)/$(OUTPUT):/data/output" \
 		-v "$(CURDIR)/$(CACHE):/root/.cache/huggingface" \
 		$(IMAGE) --output-dir /data/output --gallery-only $(ARGS)
+
+serve:
+	@mkdir -p $(OUTPUT)
+	docker run --rm -it \
+		-v "$(CURDIR)/$(OUTPUT):/data/output" \
+		-p $(PORT):$(PORT) \
+		$(IMAGE) --output-dir /data/output --serve --port $(PORT)
 
 dry-run:
 ifndef INPUT
