@@ -11,6 +11,8 @@ uv run videocatalog --output-dir out --serve    # Start edit server
 uv run python -c "from videocatalog import cli, server, processing, gallery"  # Verify imports
 ```
 
+**Docs:** CLI options documented in README.md - update when changing arguments.
+
 ## Architecture
 
 Video processing pipeline that splits recordings at detected boundaries and generates a searchable web gallery.
