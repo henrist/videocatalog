@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Gallery</title>
+  <style>
+{{ css }}
+  </style>
+</head>
+<body>
+  <h1>Video Gallery</h1>
+  <div class="controls">
+    <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
+    <button class="btn" id="expandAll">Expand All</button>
+    <button class="btn" id="collapseGroups">Collapse Sources</button>
+  </div>
+  <div class="tag-filters" id="tagFilters"></div>
+  <div id="content">
+{% for source in sources %}
+  <div class="source-group" data-source="{{ source.name }}">
+    <div class="source-header">
+      <span class="toggle-icon" onclick="toggleGroup(this.parentElement)">&#9660;</span>
+      <h2 onclick="toggleGroup(this.parentElement)">{{ source.name }}</h2>
+      <div class="source-tags-year" data-source="{{ source.name }}"></div>
+      <span class="add-desc-btn" data-source="{{ source.name }}">+description</span>
+      <span class="start-group-btn" data-source="{{ source.name }}">+group</span>
+      <span class="clip-count" onclick="toggleGroup(this.parentElement)">{{ source.clips | length }} clips</span>
+    </div>
+    <div class="source-description" data-source="{{ source.name }}"></div>
+    <div class="gallery">
+{% for clip in source.clips %}
+      <div class="video-card" data-transcript="{{ clip.transcript }}" data-source="{{ source.name }}" data-clip="{{ clip.name }}" data-video="{{ source.name }}/{{ clip.file }}">
+        <div class="thumb-grid">
+{%- if clip.sprite -%}
+          <img src="{{ source.name }}/{{ clip.sprite }}" alt="">
+{%- else -%}
+{%- for thumb in clip.thumbs -%}
+          <img src="{{ source.name }}/{{ thumb }}" alt="">
+{%- endfor -%}
+{%- endif -%}
+        </div>
+        <div class="video-info">
+          <div class="video-header">
+            <div class="video-name">{{ clip.name }}</div>
+            <div class="tags-year" data-source="{{ source.name }}" data-clip="{{ clip.name }}"></div>
+            <div class="video-duration">{{ clip.duration }}</div>
+          </div>
+          <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
+          <div class="transcript">{{ clip.transcript }}</div>
+        </div>
+      </div>
+{% endfor %}
+    </div>
+  </div>
+{% endfor %}
+  </div>
+  <div class="modal" id="modal" onclick="closeModal(event)">
+    <span class="modal-close">&times;</span>
+    <div class="modal-info" id="modalInfo"></div>
+    <video id="player1" controls></video>
+    <video id="player2" controls style="display:none"></video>
+  </div>
+  <div class="inline-popup" id="inlinePopup"></div>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <script>
+    const userEdits = {{ user_edits_json }};
+{{ js }}
+  </script>
+</body>
+</html>
