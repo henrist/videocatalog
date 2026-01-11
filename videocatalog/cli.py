@@ -28,7 +28,6 @@ from .processing import (
     transcribe_video,
     extract_audio,
     process_clips,
-    update_catalog,
     _get_default_workers,
     _transcribe_worker,
     _transcribe_from_wav,
@@ -199,7 +198,6 @@ def main():
                 clips=clips
             )
             metadata.save(metadata_path)
-            update_catalog(args.output_dir, subdir.name, subdir.name, len(clips))
 
         generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
         print("\nDone!")
@@ -372,8 +370,6 @@ def main():
         clips=clips
     )
     metadata.save(metadata_path)
-
-    update_catalog(args.output_dir, video_name, args.input.name, len(clips))
 
     generate_gallery(args.output_dir, transcribe=not skip_transcribe)
     print()

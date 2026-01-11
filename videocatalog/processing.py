@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate, CutDetectionResult, NoiseZone
+from .models import ClipInfo, VideoMetadata, CutCandidate, CutDetectionResult, NoiseZone
 
 
 class SubprocessError(Exception):
@@ -34,39 +34,6 @@ def _has_content(path: Path) -> bool:
         return path.stat().st_size > 0
     except FileNotFoundError:
         return False
-
-
-def load_catalog(output_dir: Path) -> list[CatalogEntry]:
-    """Load catalog.json from output directory."""
-    catalog_path = output_dir / "catalog.json"
-    if not catalog_path.exists():
-        return []
-    try:
-        data = json.loads(catalog_path.read_text())
-        return [CatalogEntry(**e) for e in data.get('videos', [])]
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        print(f"Warning: Failed to load catalog.json: {e}")
-        return []
-
-
-def save_catalog(output_dir: Path, entries: list[CatalogEntry]) -> None:
-    """Save catalog.json to output directory."""
-    catalog_path = output_dir / "catalog.json"
-    data = {'videos': [e.model_dump() for e in entries]}
-    catalog_path.write_text(json.dumps(data, indent=2))
-
-
-def update_catalog(output_dir: Path, name: str, source_file: str, clip_count: int) -> None:
-    """Add or update a video in the catalog."""
-    entries = load_catalog(output_dir)
-    entries = [e for e in entries if e.name != name]
-    entries.append(CatalogEntry(
-        name=name,
-        source_file=source_file,
-        processed_date=datetime.now().isoformat(),
-        clip_count=clip_count
-    ))
-    save_catalog(output_dir, entries)
 
 
 def detect_scenes(video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0) -> list[tuple[float, float]]:

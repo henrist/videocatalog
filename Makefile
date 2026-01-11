@@ -41,4 +41,4 @@ serve:
 		$(IMAGE) --output-dir /data/output --serve --host 0.0.0.0 --port $(PORT)
 
 clean:
-	rm -rf $(OUTPUT)/*/ $(OUTPUT)/gallery.html $(OUTPUT)/catalog.json
+	rm -rf $(OUTPUT)/*/ $(OUTPUT)/gallery.html

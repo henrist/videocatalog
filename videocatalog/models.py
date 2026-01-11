@@ -32,14 +32,6 @@ class VideoMetadata(BaseModel):
         return cls.model_validate_json(path.read_text())
 
 
-class CatalogEntry(BaseModel):
-    """Entry in the master catalog."""
-    name: str
-    source_file: str
-    processed_date: str
-    clip_count: int
-
-
 ConfidenceLevel = Literal["high", "medium", "low"]
 
 

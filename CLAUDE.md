@@ -36,7 +36,6 @@ Video processing pipeline that splits recordings at detected boundaries and gene
 ```
 output_dir/
 ├── gallery.html
-├── catalog.json
 └── video_name/
     ├── metadata.json      # ClipInfo list
     ├── user_edits.json    # Tags, year, descriptions
