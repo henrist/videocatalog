@@ -20,12 +20,12 @@
 {% for source in sources %}
   <div class="source-group" data-source="{{ source.name }}">
     <div class="source-header">
-      <span class="toggle-icon" onclick="toggleGroup(this.parentElement)">&#9660;</span>
-      <h2 onclick="toggleGroup(this.parentElement)">{{ source.name }}</h2>
+      <span class="toggle-icon">&#9660;</span>
+      <h2>{{ source.name }}</h2>
       <div class="source-tags-year" data-source="{{ source.name }}"></div>
       <span class="add-desc-btn" data-source="{{ source.name }}">+description</span>
       <span class="start-group-btn" data-source="{{ source.name }}">+group</span>
-      <span class="clip-count" onclick="toggleGroup(this.parentElement)">{{ source.clips | length }} clips</span>
+      <span class="clip-count">{{ source.clips | length }} clips</span>
     </div>
     <div class="source-description" data-source="{{ source.name }}"></div>
     <div class="gallery">

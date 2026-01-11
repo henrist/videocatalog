@@ -901,6 +901,13 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Handle source header click for expand/collapse (anywhere except action elements)
+  const sourceHeader = e.target.closest('.source-header');
+  if (sourceHeader && !e.target.closest('.tag, .year-badge, .add-btn, .add-desc-btn, .start-group-btn')) {
+    toggleGroup(sourceHeader);
+    return;
+  }
+
   // Handle thumb-grid clicks to play video
   const thumbGrid = e.target.closest('.thumb-grid');
   if (thumbGrid && videoCard) {
