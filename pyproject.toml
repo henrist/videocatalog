@@ -13,6 +13,9 @@ dependencies = [
     "jinja2>=3.1.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
 [project.scripts]
 videocatalog = "videocatalog.cli:main"
 

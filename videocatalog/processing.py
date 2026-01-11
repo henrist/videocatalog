@@ -69,12 +69,22 @@ def update_catalog(output_dir: Path, name: str, source_file: str, clip_count: in
     save_catalog(output_dir, entries)
 
 
-def detect_scenes(video_path: Path, limit: float = 0) -> list[tuple[float, float]]:
-    """Detect scene changes using FFmpeg's scdet filter."""
+def detect_scenes(video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0) -> list[tuple[float, float]]:
+    """Detect scene changes using FFmpeg's scdet filter.
+
+    Args:
+        video_path: Path to video file
+        limit: Duration limit (deprecated, use end_time instead)
+        start_time: Start time in seconds (seek before input for speed)
+        end_time: End time in seconds (0 = full video)
+    """
     print("  Detecting scene changes...")
     cmd = ["ffmpeg"]
-    if limit > 0:
-        cmd += ["-t", str(limit)]
+    if start_time > 0:
+        cmd += ["-ss", str(start_time)]
+    duration = end_time - start_time if end_time > 0 else limit
+    if duration > 0:
+        cmd += ["-t", str(duration)]
     cmd += [
         "-i", str(video_path),
         "-vf", "histeq,scdet=threshold=0.1",
@@ -86,19 +96,29 @@ def detect_scenes(video_path: Path, limit: float = 0) -> list[tuple[float, float
     scenes = []
     for match in re.finditer(pattern, result.stderr):
         score = float(match.group(1))
-        time = float(match.group(2))
+        time = float(match.group(2)) + start_time  # Convert to absolute time
         if score >= 5:
             scenes.append((time, score))
 
     return scenes
 
 
-def detect_black_frames(video_path: Path, limit: float = 0) -> list[tuple[float, float]]:
-    """Detect black frames using FFmpeg's blackdetect filter."""
+def detect_black_frames(video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0) -> list[tuple[float, float]]:
+    """Detect black frames using FFmpeg's blackdetect filter.
+
+    Args:
+        video_path: Path to video file
+        limit: Duration limit (deprecated, use end_time instead)
+        start_time: Start time in seconds (seek before input for speed)
+        end_time: End time in seconds (0 = full video)
+    """
     print("  Detecting black frames...")
     cmd = ["ffmpeg"]
-    if limit > 0:
-        cmd += ["-t", str(limit)]
+    if start_time > 0:
+        cmd += ["-ss", str(start_time)]
+    duration = end_time - start_time if end_time > 0 else limit
+    if duration > 0:
+        cmd += ["-t", str(duration)]
     cmd += [
         "-i", str(video_path),
         "-vf", "blackdetect=d=0.1:pix_th=0.10",
@@ -109,22 +129,33 @@ def detect_black_frames(video_path: Path, limit: float = 0) -> list[tuple[float,
     pattern = r"black_start:([\d.]+)\s+black_end:([\d.]+)\s+black_duration:([\d.]+)"
     blacks = []
     for match in re.finditer(pattern, result.stderr):
-        end_time = float(match.group(2))
-        duration = float(match.group(3))
-        if duration >= 0.1:
-            blacks.append((end_time, duration))
+        black_end = float(match.group(2)) + start_time  # Convert to absolute time
+        black_duration = float(match.group(3))
+        if black_duration >= 0.1:
+            blacks.append((black_end, black_duration))
 
     return blacks
 
 
-def detect_audio_changes(video_path: Path, duration: float, limit: float = 0) -> dict[int, float]:
-    """Compute per-second RMS levels and detect large changes."""
+def detect_audio_changes(video_path: Path, duration: float, limit: float = 0, start_time: float = 0, end_time: float = 0) -> dict[int, float]:
+    """Compute per-second RMS levels and detect large changes.
+
+    Args:
+        video_path: Path to video file
+        duration: Total video duration (used for progress, not limiting)
+        limit: Duration limit (deprecated, use end_time instead)
+        start_time: Start time in seconds (seek before input for speed)
+        end_time: End time in seconds (0 = full video)
+    """
     print("  Analyzing audio levels...")
     rms_file = Path(tempfile.gettempdir()) / f"rms_analysis_{os.getpid()}.txt"
 
     cmd = ["ffmpeg"]
-    if limit > 0:
-        cmd += ["-t", str(limit)]
+    if start_time > 0:
+        cmd += ["-ss", str(start_time)]
+    segment_duration = end_time - start_time if end_time > 0 else limit
+    if segment_duration > 0:
+        cmd += ["-t", str(segment_duration)]
     cmd += [
         "-i", str(video_path),
         "-af", f"asetnsamples=n=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file={rms_file}",
@@ -138,7 +169,7 @@ def detect_audio_changes(video_path: Path, duration: float, limit: float = 0) ->
             content = rms_file.read_text()
             pattern = r"pts_time:(\d+)\s*\n.*?RMS_level=([-\d.inf]+)"
             for match in re.finditer(pattern, content):
-                t = int(match.group(1))
+                t = int(match.group(1)) + int(start_time)  # Convert to absolute time
                 level_str = match.group(2)
                 if level_str == '-inf' or level_str == '-':
                     continue

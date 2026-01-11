@@ -51,3 +51,26 @@ make run INPUT=video.avi
 make run ARGS='--gallery-only'
 make serve
 ```
+
+## Testing
+
+Regression tests validate the scene detection algorithm against known videos.
+
+```bash
+# Install dev dependencies
+uv sync --extra dev
+
+# Generate golden file from first 3 minutes of video (times in seconds)
+uv run python -m tests.generate_golden recording.avi --start 0 --end 180
+
+# Run tests
+uv run pytest tests/ -v
+
+# Quick check: only analyze first 2 minutes
+VIDEOCATALOG_TEST_LIMIT=120 uv run pytest tests/ -v
+
+# Use different video directory
+VIDEOCATALOG_TEST_VIDEOS=/path/to/videos uv run pytest tests/ -v
+```
+
+Golden files in `tests/golden/` store expected cut times. Regenerate after intentional algorithm changes.
