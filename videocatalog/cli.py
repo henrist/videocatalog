@@ -20,19 +20,15 @@ from .models import (
     SegmentInfo,
 )
 from .processing import (
-    detect_scenes,
-    detect_black_frames,
-    detect_audio_changes,
+    detect_cuts,
     get_video_duration,
     format_time,
-    find_cuts,
     split_video,
     convert_to_mp4,
     transcribe_video,
     extract_audio,
     process_clips,
     update_catalog,
-    verify_candidates,
     _get_default_workers,
     _transcribe_worker,
     _transcribe_from_wav,
@@ -242,55 +238,55 @@ def main():
     print(f"Analyzing: {args.input}")
     print()
 
-    duration = get_video_duration(args.input)
+    # Calculate time range
+    full_duration = get_video_duration(args.input)
     start_time = args.start
-    end_time = (start_time + args.limit) if args.limit > 0 else duration
-    end_time = min(end_time, duration)
+    end_time = (start_time + args.limit) if args.limit > 0 else full_duration
+    end_time = min(end_time, full_duration)
 
-    if start_time > 0 or end_time < duration:
-        print(f"Duration: {format_time(duration)} (analyzing {format_time(start_time)} - {format_time(end_time)})")
+    if start_time > 0 or end_time < full_duration:
+        print(f"Duration: {format_time(full_duration)} (analyzing {format_time(start_time)} - {format_time(end_time)})")
     else:
-        print(f"Duration: {format_time(duration)}")
+        print(f"Duration: {format_time(full_duration)}")
     print()
 
     print("Running detection...")
-    scenes = detect_scenes(args.input, start_time=start_time, end_time=end_time)
-    blacks = detect_black_frames(args.input, start_time=start_time, end_time=end_time)
-    audio_changes = detect_audio_changes(args.input, duration, start_time=start_time, end_time=end_time)
+    result = detect_cuts(
+        args.input,
+        start_time=start_time,
+        end_time=end_time,
+        min_confidence=args.min_confidence,
+        min_gap=args.min_gap,
+        verbose=args.verbose,
+    )
+    cuts = result.cuts
+    all_candidates = result.all_candidates
+    duration = end_time  # Use analyzed segment end, not full video duration
 
-    print(f"  Found {len(scenes)} scene changes, {len(blacks)} black frames, {len(audio_changes)} audio changes")
+    print(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes")
+    print(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
 
     if args.verbose:
         print()
         print("=== RAW DETECTION DATA ===")
         print()
         print("Scene changes (time, score) - threshold >=5:")
-        for time, score in sorted(scenes):
+        for time, score in sorted(result.scenes):
             marker = " ***" if score >= 15 else " **" if score >= 10 else " *" if score >= 6 else ""
             print(f"  {format_time(time)} score={score:5.1f}{marker}")
         print()
         print("Black frames (end_time, duration) - all >=0.1s:")
-        for end_time, dur in sorted(blacks):
+        for black_end, dur in sorted(result.blacks):
             marker = " ***" if dur >= 1.0 else " **" if dur >= 0.5 else " *" if dur >= 0.2 else ""
-            print(f"  {format_time(end_time)} dur={dur:.2f}s{marker}")
+            print(f"  {format_time(black_end)} dur={dur:.2f}s{marker}")
         print()
         print("Audio level jumps (time, step_dB) - threshold >10dB:")
-        for t in sorted(audio_changes.keys()):
-            step = audio_changes[t]
+        for t in sorted(result.audio_changes.keys()):
+            step = result.audio_changes[t]
             marker = " ***" if step >= 25 else " **" if step >= 18 else " *" if step >= 12 else ""
             print(f"  {format_time(t)} step={step:5.1f}dB{marker}")
         print()
         print("Legend: * = low score, ** = medium, *** = high")
-        print()
-
-    print()
-    print(f"Finding cuts (min_confidence={args.min_confidence}, min_gap={args.min_gap}s)...")
-    cuts, all_candidates, scene_max_scores = find_cuts(scenes, blacks, audio_changes, args.min_confidence, args.min_gap, return_all=True)
-
-    # Verify cuts with histogram comparison (filters borderline false positives)
-    if cuts:
-        print(f"Verifying {len(cuts)} cut(s) with histogram comparison...")
-        cuts = verify_candidates(args.input, cuts, scene_max_scores, verbose=args.verbose)
 
     if args.verbose:
         print()
@@ -336,9 +332,9 @@ def main():
             min_gap=args.min_gap
         ),
         detection=DetectionData(
-            scenes=[SceneDetection(time=t, score=s) for t, s in scenes],
-            blacks=[BlackDetection(end_time=t, duration=d) for t, d in blacks],
-            audio_changes=[AudioChange(time=t, step=s) for t, s in audio_changes.items()]
+            scenes=[SceneDetection(time=t, score=s) for t, s in result.scenes],
+            blacks=[BlackDetection(end_time=t, duration=d) for t, d in result.blacks],
+            audio_changes=[AudioChange(time=t, step=s) for t, s in result.audio_changes.items()]
         ),
         candidates=[
             CandidateInfo(

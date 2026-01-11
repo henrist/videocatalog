@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate
+from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate, CutDetectionResult
 
 
 class SubprocessError(Exception):
@@ -516,6 +516,52 @@ def find_cuts(
     if return_all:
         return result, candidates, scene_max
     return result
+
+
+def detect_cuts(
+    video_path: Path,
+    start_time: float = 0,
+    end_time: float | None = None,
+    min_confidence: int = 12,
+    min_gap: float = 1.0,
+    verbose: bool = False,
+) -> CutDetectionResult:
+    """Run full cut detection pipeline: detect signals -> find cuts -> verify.
+
+    Args:
+        video_path: Path to video file
+        start_time: Start time in seconds
+        end_time: End time in seconds (None = full video)
+        min_confidence: Minimum confidence score for cuts
+        min_gap: Minimum gap between cuts in seconds
+        verbose: Print verbose verification output
+    """
+    duration = get_video_duration(video_path)
+    if end_time is None or end_time == 0:
+        end_time = duration
+
+    scenes = detect_scenes(video_path, start_time=start_time, end_time=end_time)
+    blacks = detect_black_frames(video_path, start_time=start_time, end_time=end_time)
+    audio_changes = detect_audio_changes(video_path, duration, start_time=start_time, end_time=end_time)
+
+    cuts, all_candidates, scene_max = find_cuts(
+        scenes, blacks, audio_changes,
+        min_confidence=min_confidence,
+        min_gap=min_gap,
+        return_all=True
+    )
+
+    verified = verify_candidates(video_path, cuts, scene_max, verbose=verbose)
+
+    return CutDetectionResult(
+        cuts=verified,
+        all_candidates=all_candidates,
+        scene_max_scores=scene_max,
+        duration=duration,
+        scenes=scenes,
+        blacks=blacks,
+        audio_changes=audio_changes,
+    )
 
 
 def split_video(

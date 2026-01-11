@@ -1,6 +1,7 @@
 """Data models for videocatalog."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -124,6 +125,18 @@ class CutCandidate(BaseModel):
         if self.audio_step > 0:
             parts.append(f"audio:{self.audio_step:.1f}dB")
         return " ".join(parts) if parts else "none"
+
+
+@dataclass
+class CutDetectionResult:
+    """Result of the full cut detection pipeline."""
+    cuts: list[CutCandidate]
+    all_candidates: list[CutCandidate]
+    scene_max_scores: dict[int, float]
+    duration: float
+    scenes: list[tuple[float, float]]  # (time, score)
+    blacks: list[tuple[float, float]]  # (end_time, duration)
+    audio_changes: dict[int, float]  # time -> step_dB
 
 
 # Split detection data models

@@ -14,14 +14,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from videocatalog.processing import (
-    detect_scenes,
-    detect_black_frames,
-    detect_audio_changes,
-    find_cuts,
-    verify_candidates,
-    get_video_duration,
-)
+from videocatalog.processing import detect_cuts
 
 
 def main():
@@ -44,30 +37,23 @@ def main():
 
     print(f"Processing: {video_path}")
 
-    # Get duration
-    total_duration = get_video_duration(video_path)
-    end_time = args.end if args.end > 0 else total_duration
-    segment_duration = end_time - args.start
-    print(f"  Analyzing: {args.start}s - {end_time}s ({segment_duration:.1f}s of {total_duration:.1f}s total)")
+    end_time = args.end if args.end > 0 else None
 
-    # Run detection
-    scenes = detect_scenes(video_path, start_time=args.start, end_time=end_time)
-    blacks = detect_black_frames(video_path, start_time=args.start, end_time=end_time)
-    audio = detect_audio_changes(video_path, total_duration, start_time=args.start, end_time=end_time)
-
-    print(f"  Scenes: {len(scenes)}, Blacks: {len(blacks)}, Audio changes: {len(audio)}")
-
-    # Find cuts
-    cuts, all_candidates, scene_max = find_cuts(
-        scenes, blacks, audio,
+    result = detect_cuts(
+        video_path,
+        start_time=args.start,
+        end_time=end_time,
         min_confidence=args.min_confidence,
         min_gap=args.min_gap,
-        return_all=True
+        verbose=True,
     )
 
-    # Verify
-    verified = verify_candidates(video_path, cuts, scene_max, verbose=True)
-    cut_times = [c.time for c in verified]
+    actual_end = end_time or result.duration
+    segment_duration = actual_end - args.start
+    print(f"  Analyzed: {args.start}s - {actual_end}s ({segment_duration:.1f}s of {result.duration:.1f}s total)")
+    print(f"  Scenes: {len(result.scenes)}, Blacks: {len(result.blacks)}, Audio changes: {len(result.audio_changes)}")
+
+    cut_times = [c.time for c in result.cuts]
 
     print(f"\nFound {len(cut_times)} cuts:")
     for t in cut_times:
