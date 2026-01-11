@@ -263,7 +263,8 @@ def main():
     all_candidates = result.all_candidates
     duration = end_time  # Use analyzed segment end, not full video duration
 
-    print(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes")
+    noise_info = f", {len(result.noise_zones)} noise zones" if result.noise_zones else ""
+    print(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes{noise_info}")
     print(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
 
     if args.verbose:
@@ -287,6 +288,12 @@ def main():
             print(f"  {format_time(t)} step={step:5.1f}dB{marker}")
         print()
         print("Legend: * = low score, ** = medium, *** = high")
+
+        if result.noise_zones:
+            print()
+            print("Noise zones (suppressed interior detections):")
+            for zone in result.noise_zones:
+                print(f"  {format_time(zone.start)} - {format_time(zone.end)} ({zone.end - zone.start:.1f}s, {zone.detection_count} detections)")
 
     if args.verbose:
         print()

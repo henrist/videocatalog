@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate, CutDetectionResult
+from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate, CutDetectionResult, NoiseZone
 
 
 class SubprocessError(Exception):
@@ -405,6 +405,116 @@ def verify_candidates(
     return verified
 
 
+def detect_noise_zones(
+    scenes: list[tuple[float, float]],
+    window_size: int = 10,
+    avg_threshold: float = 2.5,
+    min_duration: float = 10.0,
+    merge_gap: float = 5.0
+) -> list[NoiseZone]:
+    """Detect noise zones by sustained high scene detection density.
+
+    Uses sliding window to detect regions with consistently elevated detection rates,
+    even when individual seconds vary (e.g., VHS noise with periodic spikes).
+
+    Args:
+        scenes: List of (time, score) scene detections
+        window_size: Size of sliding window in seconds
+        avg_threshold: Average detections per second threshold within window
+        min_duration: Minimum seconds to form a noise zone
+        merge_gap: Merge zones within this many seconds
+    """
+    if not scenes:
+        return []
+
+    from collections import Counter
+    detections_per_sec = Counter(int(t) for t, _ in scenes)
+
+    if not detections_per_sec:
+        return []
+
+    # Get time range
+    min_t = min(detections_per_sec.keys())
+    max_t = max(detections_per_sec.keys())
+
+    # Sliding window: find seconds where average density exceeds threshold
+    high_density_secs = []
+    for t in range(min_t, max_t - window_size + 2):
+        window_total = sum(detections_per_sec.get(t + i, 0) for i in range(window_size))
+        avg = window_total / window_size
+        if avg >= avg_threshold:
+            high_density_secs.append(t)
+
+    if not high_density_secs:
+        return []
+
+    # Group consecutive seconds into zones
+    zones: list[NoiseZone] = []
+    zone_start = high_density_secs[0]
+    zone_end = high_density_secs[0]
+
+    for t in high_density_secs[1:]:
+        if t <= zone_end + 1:
+            zone_end = t
+        else:
+            zone_duration = zone_end - zone_start + window_size
+            if zone_duration >= min_duration:
+                zone_count = sum(detections_per_sec.get(zone_start + i, 0)
+                                for i in range(zone_duration))
+                zones.append(NoiseZone(float(zone_start), float(zone_start + zone_duration), zone_count))
+            zone_start = t
+            zone_end = t
+
+    # Don't forget last zone
+    zone_duration = zone_end - zone_start + window_size
+    if zone_duration >= min_duration:
+        zone_count = sum(detections_per_sec.get(zone_start + i, 0)
+                        for i in range(zone_duration))
+        zones.append(NoiseZone(float(zone_start), float(zone_start + zone_duration), zone_count))
+
+    # Merge zones within merge_gap
+    if len(zones) > 1:
+        merged = [zones[0]]
+        for z in zones[1:]:
+            if z.start - merged[-1].end <= merge_gap:
+                total_count = merged[-1].detection_count + z.detection_count
+                merged[-1] = NoiseZone(merged[-1].start, z.end, total_count)
+            else:
+                merged.append(z)
+        zones = merged
+
+    return zones
+
+
+def suppress_noise_detections(
+    scenes: list[tuple[float, float]],
+    noise_zones: list[NoiseZone],
+    boundary_margin: float = 5.0
+) -> list[tuple[float, float]]:
+    """Remove scene detections inside noise zones, keeping boundary detections.
+
+    Args:
+        scenes: List of (time, score) scene detections
+        noise_zones: Detected noise zones
+        boundary_margin: Keep detections within this margin of zone boundaries (5s default)
+    """
+    if not noise_zones:
+        return scenes
+
+    filtered = []
+    for time, score in scenes:
+        in_noise = False
+        for zone in noise_zones:
+            # Check if inside zone but outside boundary margins
+            if zone.start + boundary_margin < time < zone.end - boundary_margin:
+                in_noise = True
+                break
+        if not in_noise:
+            filtered.append((time, score))
+
+    return filtered
+
+
 def find_cuts(
     scenes: list[tuple[float, float]],
     blacks: list[tuple[float, float]],
@@ -413,7 +523,7 @@ def find_cuts(
     min_gap: float = 10.0,
     window: int = 2,
     return_all: bool = False
-) -> list[CutCandidate] | tuple[list[CutCandidate], list[CutCandidate]]:
+) -> list[CutCandidate] | tuple[list[CutCandidate], list[CutCandidate], dict[int, float], list[NoiseZone]]:
     """Combine signals to find recording boundaries.
 
     Uses cluster totals: sum of all scene scores in same second.
@@ -422,9 +532,15 @@ def find_cuts(
     """
     from collections import defaultdict
 
+    # Detect noise zones before processing
+    noise_zones = detect_noise_zones(scenes)
+
+    # Suppress detections inside noise zones (keep boundary detections)
+    filtered_scenes = suppress_noise_detections(scenes, noise_zones)
+
     # Group scenes by second - keep all detections for cluster analysis
     scene_clusters: dict[int, list[tuple[float, float]]] = defaultdict(list)
-    for time, score in scenes:
+    for time, score in filtered_scenes:
         t = int(time)
         scene_clusters[t].append((time, score))
 
@@ -514,7 +630,7 @@ def find_cuts(
 
     result = sorted(selected, key=lambda c: c.time)
     if return_all:
-        return result, candidates, scene_max
+        return result, candidates, scene_max, noise_zones
     return result
 
 
@@ -544,7 +660,7 @@ def detect_cuts(
     blacks = detect_black_frames(video_path, start_time=start_time, end_time=end_time)
     audio_changes = detect_audio_changes(video_path, duration, start_time=start_time, end_time=end_time)
 
-    cuts, all_candidates, scene_max = find_cuts(
+    cuts, all_candidates, scene_max, noise_zones = find_cuts(
         scenes, blacks, audio_changes,
         min_confidence=min_confidence,
         min_gap=min_gap,
@@ -561,6 +677,7 @@ def detect_cuts(
         scenes=scenes,
         blacks=blacks,
         audio_changes=audio_changes,
+        noise_zones=noise_zones,
     )
 
 

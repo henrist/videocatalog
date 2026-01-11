@@ -128,6 +128,14 @@ class CutCandidate(BaseModel):
 
 
 @dataclass
+class NoiseZone:
+    """A detected noise/static zone where scene detection is suppressed."""
+    start: float
+    end: float
+    detection_count: int
+
+
+@dataclass
 class CutDetectionResult:
     """Result of the full cut detection pipeline."""
     cuts: list[CutCandidate]
@@ -137,6 +145,7 @@ class CutDetectionResult:
     scenes: list[tuple[float, float]]  # (time, score)
     blacks: list[tuple[float, float]]  # (end_time, duration)
     audio_changes: dict[int, float]  # time -> step_dB
+    noise_zones: list[NoiseZone] | None = None
 
 
 # Split detection data models
