@@ -67,12 +67,15 @@ def update_catalog(output_dir: Path, name: str, source_file: str, clip_count: in
     save_catalog(output_dir, entries)
 
 
-def detect_scenes(video_path: Path) -> list[tuple[float, float]]:
+def detect_scenes(video_path: Path, limit: float = 0) -> list[tuple[float, float]]:
     """Detect scene changes using FFmpeg's scdet filter."""
     print("  Detecting scene changes...")
-    cmd = [
-        "ffmpeg", "-i", str(video_path),
-        "-vf", "scdet=threshold=0.1",
+    cmd = ["ffmpeg"]
+    if limit > 0:
+        cmd += ["-t", str(limit)]
+    cmd += [
+        "-i", str(video_path),
+        "-vf", "histeq,scdet=threshold=0.1",
         "-f", "null", "-"
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -88,11 +91,14 @@ def detect_scenes(video_path: Path) -> list[tuple[float, float]]:
     return scenes
 
 
-def detect_black_frames(video_path: Path) -> list[tuple[float, float]]:
+def detect_black_frames(video_path: Path, limit: float = 0) -> list[tuple[float, float]]:
     """Detect black frames using FFmpeg's blackdetect filter."""
     print("  Detecting black frames...")
-    cmd = [
-        "ffmpeg", "-i", str(video_path),
+    cmd = ["ffmpeg"]
+    if limit > 0:
+        cmd += ["-t", str(limit)]
+    cmd += [
+        "-i", str(video_path),
         "-vf", "blackdetect=d=0.1:pix_th=0.10",
         "-an", "-f", "null", "-"
     ]
@@ -109,13 +115,16 @@ def detect_black_frames(video_path: Path) -> list[tuple[float, float]]:
     return blacks
 
 
-def detect_audio_changes(video_path: Path, duration: float) -> dict[int, float]:
+def detect_audio_changes(video_path: Path, duration: float, limit: float = 0) -> dict[int, float]:
     """Compute per-second RMS levels and detect large changes."""
     print("  Analyzing audio levels...")
     rms_file = Path(tempfile.gettempdir()) / f"rms_analysis_{os.getpid()}.txt"
 
-    cmd = [
-        "ffmpeg", "-i", str(video_path),
+    cmd = ["ffmpeg"]
+    if limit > 0:
+        cmd += ["-t", str(limit)]
+    cmd += [
+        "-i", str(video_path),
         "-af", f"asetnsamples=n=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file={rms_file}",
         "-f", "null", "-"
     ]
@@ -137,11 +146,13 @@ def detect_audio_changes(video_path: Path, duration: float) -> dict[int, float]:
         rms_file.unlink(missing_ok=True)
 
     changes = {}
-    for t in range(1, int(duration) + 1):
-        if t in rms and t - 1 in rms:
-            step = abs(rms[t] - rms[t - 1])
-            if step > 10:
-                changes[t] = step
+    sorted_times = sorted(rms.keys())
+    for i in range(1, len(sorted_times)):
+        t = sorted_times[i]
+        prev_t = sorted_times[i - 1]
+        step = abs(rms[t] - rms[prev_t])
+        if step > 5:
+            changes[t] = step
 
     return changes
 
@@ -187,21 +198,139 @@ def format_time_filename(seconds: float) -> str:
     return f"{hours:02d}h{minutes:02d}m{secs:02d}s"
 
 
+def verify_scene_change(video_path: Path, time: float, threshold: float = 0.7) -> tuple[bool, float]:
+    """Verify scene change by comparing color histograms before/after.
+
+    Uses histogram comparison which is robust to camera motion.
+    Returns (is_valid, similarity). A real scene change has low similarity.
+    A smooth transition (same scene) has high similarity.
+    """
+    import cv2
+
+    before_time = max(0, time - 0.5)
+    after_time = time + 0.5
+
+    # Extract two frames to temp files
+    tmp_dir = Path(tempfile.gettempdir())
+    frame1 = tmp_dir / f"hist_before_{os.getpid()}.png"
+    frame2 = tmp_dir / f"hist_after_{os.getpid()}.png"
+
+    try:
+        # Extract frame before
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(before_time), "-i", str(video_path),
+            "-frames:v", "1", "-f", "image2", str(frame1)
+        ], capture_output=True)
+
+        # Extract frame after
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(after_time), "-i", str(video_path),
+            "-frames:v", "1", "-f", "image2", str(frame2)
+        ], capture_output=True)
+
+        if not frame1.exists() or not frame2.exists():
+            return True, 0.0
+
+        # Load images and convert to HSV
+        img1 = cv2.imread(str(frame1))
+        img2 = cv2.imread(str(frame2))
+        if img1 is None or img2 is None:
+            return True, 0.0
+
+        hsv1 = cv2.cvtColor(img1, cv2.COLOR_BGR2HSV)
+        hsv2 = cv2.cvtColor(img2, cv2.COLOR_BGR2HSV)
+
+        # Calculate and normalize histograms
+        hist1 = cv2.calcHist([hsv1], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        hist2 = cv2.calcHist([hsv2], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        cv2.normalize(hist1, hist1)
+        cv2.normalize(hist2, hist2)
+
+        # Compare histograms (1.0 = identical, 0 = no correlation)
+        similarity = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+
+        # High similarity = same scene = should NOT cut (false positive)
+        # Low similarity = different scene = real cut
+        return similarity < threshold, similarity
+
+    finally:
+        frame1.unlink(missing_ok=True)
+        frame2.unlink(missing_ok=True)
+
+
+def verify_candidates(
+    video_path: Path,
+    candidates: list[CutCandidate],
+    scene_max_scores: dict[int, float],
+    threshold: float = 0.7,
+    verbose: bool = False
+) -> list[CutCandidate]:
+    """Filter candidates by verifying with histogram comparison.
+
+    Only applies histogram filtering to borderline candidates (max_score < 10).
+    Strong detections (max_score >= 10) are kept regardless of histogram.
+    """
+    if verbose:
+        print(f"  Verifying {len(candidates)} candidates with histogram comparison...")
+
+    verified = []
+    for c in candidates:
+        max_score = scene_max_scores.get(int(c.time), 0)
+
+        # Strong detections pass without histogram check
+        if max_score >= 10:
+            if verbose:
+                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (strong)")
+            verified.append(c)
+            continue
+
+        # Borderline detections need histogram verification
+        is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
+        if verbose:
+            status = "PASS" if is_valid else "FAIL (same scene)"
+            print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> {status}")
+        if is_valid:
+            verified.append(c)
+
+    if verbose:
+        print(f"  Verified: {len(verified)}/{len(candidates)} candidates passed")
+
+    return verified
+
+
 def find_cuts(
     scenes: list[tuple[float, float]],
     blacks: list[tuple[float, float]],
     audio_changes: dict[int, float],
     min_confidence: int,
     min_gap: float = 10.0,
-    window: int = 3,
+    window: int = 2,
     return_all: bool = False
 ) -> list[CutCandidate] | tuple[list[CutCandidate], list[CutCandidate]]:
-    """Combine signals to find recording boundaries."""
-    scene_map: dict[int, tuple[float, float]] = {}
+    """Combine signals to find recording boundaries.
+
+    Uses cluster totals: sum of all scene scores in same second.
+    This better identifies recording boundaries which often have
+    multiple rapid detections.
+    """
+    from collections import defaultdict
+
+    # Group scenes by second - keep all detections for cluster analysis
+    scene_clusters: dict[int, list[tuple[float, float]]] = defaultdict(list)
     for time, score in scenes:
         t = int(time)
-        if t not in scene_map or score > scene_map[t][1]:
-            scene_map[t] = (time, score)
+        scene_clusters[t].append((time, score))
+
+    # Compute cluster totals, max scores, and best time for each second
+    scene_totals: dict[int, float] = {}
+    scene_max: dict[int, float] = {}
+    scene_best_time: dict[int, float] = {}
+    for t, detections in scene_clusters.items():
+        scene_totals[t] = sum(score for _, score in detections)
+        # Use time of highest-scoring detection as the cut point
+        best = max(detections, key=lambda x: x[1])
+        scene_max[t] = best[1]
+        scene_best_time[t] = best[0]
 
     black_map: dict[int, tuple[float, float]] = {}
     for end_time, duration in blacks:
@@ -209,50 +338,57 @@ def find_cuts(
         if t not in black_map or duration > black_map[t][1]:
             black_map[t] = (end_time, duration)
 
-    potential_times = set()
-    for t, (_, score) in scene_map.items():
-        if score >= 5:
-            potential_times.add(t)
-    for t in black_map:
-        potential_times.add(t)
-    for t, step in audio_changes.items():
-        if step >= 12:
-            potential_times.add(t)
-
+    # Build candidates from scene clusters (not from window expansion)
     candidates: list[CutCandidate] = []
 
-    for t in potential_times:
-        best_scene_score = 0.0
-        best_scene_time = float(t)
+    for t in scene_totals:
+        cluster_total = scene_totals[t]
+        max_score = scene_max[t]
+
+        # Require at least one strong detection in the cluster
+        # This filters clusters of many weak detections (false positives)
+        # Threshold 8 separates true cuts (min 8.3) from false positives (max 7.7)
+        if max_score < 8:
+            continue
+
+        # Look for corroborating signals in nearby seconds
         best_black_duration = 0.0
         best_audio_step = 0.0
 
         for offset in range(-window, window + 1):
             check_t = t + offset
-
-            if check_t in scene_map:
-                time, score = scene_map[check_t]
-                if score > best_scene_score:
-                    best_scene_score = score
-                    best_scene_time = time
-
             if check_t in black_map:
                 _, duration = black_map[check_t]
                 if duration > best_black_duration:
                     best_black_duration = duration
-
             if check_t in audio_changes:
                 if audio_changes[check_t] > best_audio_step:
                     best_audio_step = audio_changes[check_t]
 
+        # Only apply audio bonus if scene is strong (max >= 10)
+        # For borderline detections, audio often indicates noise not confirmation
+        effective_audio = best_audio_step if max_score >= 10 else 0.0
+
         candidate = CutCandidate(
-            time=best_scene_time,
-            scene_score=best_scene_score,
+            time=scene_best_time[t],
+            scene_score=cluster_total,  # Use cluster total as score
             black_duration=best_black_duration,
-            audio_step=best_audio_step
+            audio_step=effective_audio
         )
         candidates.append(candidate)
 
+    # Also add audio-only candidates (significant audio change without scene)
+    for t, step in audio_changes.items():
+        if step >= 15 and t not in scene_totals:
+            candidate = CutCandidate(
+                time=float(t),
+                scene_score=0.0,
+                black_duration=black_map.get(t, (0, 0))[1] if t in black_map else 0.0,
+                audio_step=step
+            )
+            candidates.append(candidate)
+
+    # Sort by confidence score (highest first) for greedy selection
     sorted_candidates = sorted(candidates, key=lambda c: -c.confidence_score)
     selected = []
 
@@ -271,7 +407,7 @@ def find_cuts(
 
     result = sorted(selected, key=lambda c: c.time)
     if return_all:
-        return result, candidates
+        return result, candidates, scene_max
     return result
 
 

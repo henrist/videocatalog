@@ -94,42 +94,24 @@ class CutCandidate(BaseModel):
     @computed_field
     @property
     def confidence_score(self) -> int:
-        """Calculate confidence score based on multiple signals."""
-        score = 0
+        """Calculate confidence score: raw scene score + bonuses for black/audio."""
+        score = int(self.scene_score)
 
-        # Scene detection scoring
-        if self.scene_score >= 25:
-            score += 40
-        elif self.scene_score >= 15:
-            score += 25
-        elif self.scene_score >= 10:
-            score += 15
-        elif self.scene_score >= 6:
-            score += 5
+        # Bonus for corroborating black frames
+        if self.black_duration >= 0.2:
+            score += 10
 
-        # Black frame scoring
-        if self.black_duration >= 1.0:
-            score += 35
-        elif self.black_duration >= 0.5:
-            score += 25
-        elif self.black_duration >= 0.2:
-            score += 15
-
-        # Audio RMS step scoring
-        if self.audio_step >= 25:
-            score += 30
-        elif self.audio_step >= 18:
-            score += 20
-        elif self.audio_step >= 12:
+        # Bonus for corroborating audio change
+        if self.audio_step >= 5:
             score += 10
 
         return score
 
     def score_breakdown(self) -> tuple[int, int, int]:
         """Return (scene_pts, black_pts, audio_pts) score components."""
-        scene_pts = 40 if self.scene_score >= 25 else 25 if self.scene_score >= 15 else 15 if self.scene_score >= 10 else 5 if self.scene_score >= 6 else 0
-        black_pts = 35 if self.black_duration >= 1.0 else 25 if self.black_duration >= 0.5 else 15 if self.black_duration >= 0.2 else 0
-        audio_pts = 30 if self.audio_step >= 25 else 20 if self.audio_step >= 18 else 10 if self.audio_step >= 12 else 0
+        scene_pts = int(self.scene_score)
+        black_pts = 10 if self.black_duration >= 0.2 else 0
+        audio_pts = 10 if self.audio_step >= 5 else 0
         return scene_pts, black_pts, audio_pts
 
     def signal_summary(self) -> str:

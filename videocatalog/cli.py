@@ -32,6 +32,7 @@ from .processing import (
     extract_audio,
     process_clips,
     update_catalog,
+    verify_candidates,
     _get_default_workers,
     _transcribe_worker,
     _transcribe_from_wav,
@@ -45,10 +46,12 @@ def main():
     )
     parser.add_argument("input", type=Path, nargs="?", help="Input video file")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
-    parser.add_argument("--min-confidence", type=int, default=45,
-                        help="Minimum confidence score for cuts (default: 45)")
+    parser.add_argument("--min-confidence", type=int, default=12,
+                        help="Minimum confidence score for cuts (default: 12)")
     parser.add_argument("--min-gap", type=float, default=2.0,
                         help="Minimum gap between cuts in seconds (default: 2)")
+    parser.add_argument("--limit", type=float, default=0,
+                        help="Limit processing to first N seconds (0=full video)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show detected cuts without splitting")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -238,13 +241,18 @@ def main():
     print()
 
     duration = get_video_duration(args.input)
-    print(f"Duration: {format_time(duration)}")
+    limit = args.limit if args.limit > 0 else duration
+    if limit < duration:
+        print(f"Duration: {format_time(duration)} (limiting to {format_time(limit)})")
+        duration = limit
+    else:
+        print(f"Duration: {format_time(duration)}")
     print()
 
     print("Running detection...")
-    scenes = detect_scenes(args.input)
-    blacks = detect_black_frames(args.input)
-    audio_changes = detect_audio_changes(args.input, duration)
+    scenes = detect_scenes(args.input, limit=limit)
+    blacks = detect_black_frames(args.input, limit=limit)
+    audio_changes = detect_audio_changes(args.input, duration, limit=limit)
 
     print(f"  Found {len(scenes)} scene changes, {len(blacks)} black frames, {len(audio_changes)} audio changes")
 
@@ -273,7 +281,12 @@ def main():
 
     print()
     print(f"Finding cuts (min_confidence={args.min_confidence}, min_gap={args.min_gap}s)...")
-    cuts, all_candidates = find_cuts(scenes, blacks, audio_changes, args.min_confidence, args.min_gap, return_all=True)
+    cuts, all_candidates, scene_max_scores = find_cuts(scenes, blacks, audio_changes, args.min_confidence, args.min_gap, return_all=True)
+
+    # Verify cuts with histogram comparison (filters borderline false positives)
+    if cuts:
+        print(f"Verifying {len(cuts)} cut(s) with histogram comparison...")
+        cuts = verify_candidates(args.input, cuts, scene_max_scores, verbose=args.verbose)
 
     if args.verbose:
         print()

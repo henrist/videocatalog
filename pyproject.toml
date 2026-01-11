@@ -8,6 +8,7 @@ dependencies = [
     "av==16.0.1",  # 16.1.0 lacks Linux py3.12 wheels
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+    "opencv-python-headless>=4.12.0.88",
 ]
 
 [project.scripts]
