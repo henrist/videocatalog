@@ -50,8 +50,10 @@ def main():
                         help="Minimum confidence score for cuts (default: 12)")
     parser.add_argument("--min-gap", type=float, default=1.0,
                         help="Minimum gap between cuts in seconds (default: 1)")
+    parser.add_argument("--start", type=float, default=0,
+                        help="Start processing at N seconds (default: 0)")
     parser.add_argument("--limit", type=float, default=0,
-                        help="Limit processing to first N seconds (0=full video)")
+                        help="Limit processing to N seconds from start (0=full video)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show detected cuts without splitting")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -241,18 +243,20 @@ def main():
     print()
 
     duration = get_video_duration(args.input)
-    limit = args.limit if args.limit > 0 else duration
-    if limit < duration:
-        print(f"Duration: {format_time(duration)} (limiting to {format_time(limit)})")
-        duration = limit
+    start_time = args.start
+    end_time = (start_time + args.limit) if args.limit > 0 else duration
+    end_time = min(end_time, duration)
+
+    if start_time > 0 or end_time < duration:
+        print(f"Duration: {format_time(duration)} (analyzing {format_time(start_time)} - {format_time(end_time)})")
     else:
         print(f"Duration: {format_time(duration)}")
     print()
 
     print("Running detection...")
-    scenes = detect_scenes(args.input, limit=limit)
-    blacks = detect_black_frames(args.input, limit=limit)
-    audio_changes = detect_audio_changes(args.input, duration, limit=limit)
+    scenes = detect_scenes(args.input, start_time=start_time, end_time=end_time)
+    blacks = detect_black_frames(args.input, start_time=start_time, end_time=end_time)
+    audio_changes = detect_audio_changes(args.input, duration, start_time=start_time, end_time=end_time)
 
     print(f"  Found {len(scenes)} scene changes, {len(blacks)} black frames, {len(audio_changes)} audio changes")
 

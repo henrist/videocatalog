@@ -291,6 +291,65 @@ def verify_scene_change(video_path: Path, time: float, threshold: float = 0.7) -
         frame2.unlink(missing_ok=True)
 
 
+def check_scene_stability(
+    video_path: Path,
+    time: float,
+    threshold: float = 0.955
+) -> tuple[bool, float, float]:
+    """Check if distant frames before/after cut are similar (flash detection).
+
+    Compares frames at ±0.5s and ±2s. If BOTH intervals show high similarity
+    (>=0.9), the cut is likely a flash/disturbance.
+
+    Returns (is_flash, sim_1s, sim_2s).
+    """
+    import cv2
+
+    def compare_frames(before_time: float, after_time: float) -> float:
+        tmp_dir = Path(tempfile.gettempdir())
+        frame1 = tmp_dir / f"stab_before_{os.getpid()}.png"
+        frame2 = tmp_dir / f"stab_after_{os.getpid()}.png"
+
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(max(0, before_time)), "-i", str(video_path),
+                "-frames:v", "1", "-f", "image2", str(frame1)
+            ], capture_output=True)
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(after_time), "-i", str(video_path),
+                "-frames:v", "1", "-f", "image2", str(frame2)
+            ], capture_output=True)
+
+            if not frame1.exists() or not frame2.exists():
+                return 0.0
+
+            img1 = cv2.imread(str(frame1))
+            img2 = cv2.imread(str(frame2))
+            if img1 is None or img2 is None:
+                return 0.0
+
+            hsv1 = cv2.cvtColor(img1, cv2.COLOR_BGR2HSV)
+            hsv2 = cv2.cvtColor(img2, cv2.COLOR_BGR2HSV)
+            hist1 = cv2.calcHist([hsv1], [0, 1], None, [50, 60], [0, 180, 0, 256])
+            hist2 = cv2.calcHist([hsv2], [0, 1], None, [50, 60], [0, 180, 0, 256])
+            cv2.normalize(hist1, hist1)
+            cv2.normalize(hist2, hist2)
+
+            return cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+        finally:
+            frame1.unlink(missing_ok=True)
+            frame2.unlink(missing_ok=True)
+
+    # Check at multiple intervals to catch both momentary flashes and sustained flickering
+    sim_short = compare_frames(time - 0.5, time + 0.5)
+    sim_long = compare_frames(time - 2.0, time + 2.0)
+
+    # Flash if EITHER interval is very high AND both are at least moderately high
+    # This avoids filtering real cuts that have one high but one low interval
+    is_flash = (sim_short >= threshold or sim_long >= threshold) and min(sim_short, sim_long) >= 0.85
+    return is_flash, sim_short, sim_long
+
+
 def verify_candidates(
     video_path: Path,
     candidates: list[CutCandidate],
@@ -298,10 +357,11 @@ def verify_candidates(
     threshold: float = 0.7,
     verbose: bool = False
 ) -> list[CutCandidate]:
-    """Filter candidates by verifying with histogram comparison.
+    """Filter candidates by verifying with histogram comparison and flash detection.
 
-    Only applies histogram filtering to borderline candidates (max_score < 10).
-    Strong detections (max_score >= 10) are kept regardless of histogram.
+    - Black frame corroboration: pass without checks (strong signal)
+    - Borderline (max_score < 10): histogram verification first
+    - All others: flash detection via stability check
     """
     if verbose:
         print(f"  Verifying {len(candidates)} candidates with histogram comparison...")
@@ -309,21 +369,35 @@ def verify_candidates(
     verified = []
     for c in candidates:
         max_score = scene_max_scores.get(int(c.time), 0)
+        has_black = c.black_duration >= 0.2
+        has_audio = c.audio_step >= 5
 
-        # Strong detections pass without histogram check
-        if max_score >= 10:
+        # Black or audio corroboration = likely real cut, skip flash detection
+        if has_black or has_audio:
             if verbose:
-                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (strong)")
+                signal = "black frame" if has_black else "audio"
+                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS ({signal})")
             verified.append(c)
             continue
 
-        # Borderline detections need histogram verification
-        is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
+        # Borderline detections need histogram check first
+        if max_score < 10:
+            is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
+            if not is_valid:
+                if verbose:
+                    print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)")
+                continue
+
+        # Flash detection for scene-only candidates (no black/audio corroboration)
+        is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
+        if is_flash:
+            if verbose:
+                print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+            continue
+
         if verbose:
-            status = "PASS" if is_valid else "FAIL (same scene)"
-            print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> {status}")
-        if is_valid:
-            verified.append(c)
+            print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> PASS")
+        verified.append(c)
 
     if verbose:
         print(f"  Verified: {len(verified)}/{len(candidates)} candidates passed")
