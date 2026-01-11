@@ -48,8 +48,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
     parser.add_argument("--min-confidence", type=int, default=12,
                         help="Minimum confidence score for cuts (default: 12)")
-    parser.add_argument("--min-gap", type=float, default=2.0,
-                        help="Minimum gap between cuts in seconds (default: 2)")
+    parser.add_argument("--min-gap", type=float, default=1.0,
+                        help="Minimum gap between cuts in seconds (default: 1)")
     parser.add_argument("--limit", type=float, default=0,
                         help="Limit processing to first N seconds (0=full video)")
     parser.add_argument("--dry-run", action="store_true",
