@@ -17,6 +17,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from videocatalog.processing import detect_cuts
 
 
+def get_next_golden_name(golden_dir: Path, video_stem: str) -> str:
+    """Return next available name: video.json, video_2.json, video_3.json..."""
+    base = f"{video_stem}.json"
+    if not (golden_dir / base).exists():
+        return base
+
+    n = 2
+    while (golden_dir / f"{video_stem}_{n}.json").exists():
+        n += 1
+    return f"{video_stem}_{n}.json"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate golden file for regression tests")
     parser.add_argument("video", help="Video filename (relative to VIDEOCATALOG_TEST_VIDEOS)")
@@ -75,7 +87,7 @@ def main():
     golden_dir = Path(__file__).parent / "golden"
     golden_dir.mkdir(exist_ok=True)
 
-    output_name = args.output or Path(args.video).stem + ".json"
+    output_name = args.output or get_next_golden_name(golden_dir, Path(args.video).stem)
     output_path = golden_dir / output_name
     output_path.write_text(json.dumps(golden, indent=2) + "\n")
 
