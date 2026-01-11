@@ -217,15 +217,11 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
         .video-card.hidden { display: none; }
         .thumb-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 2px;
             cursor: pointer;
         }
         .thumb-grid img {
             width: 100%;
-            aspect-ratio: 16/9;
-            object-fit: cover;
+            display: block;
         }
         .video-info { padding: 10px; }
         .video-header {
@@ -456,7 +452,10 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         <div class="gallery">
 '''
         for clip in clips:
-            thumbs_html = ''.join(f'<img src="{source_name}/{t}" alt="">' for t in clip.thumbs)
+            if clip.sprite:
+                thumbs_html = f'<img src="{source_name}/{clip.sprite}" alt="">'
+            else:
+                thumbs_html = ''.join(f'<img src="{source_name}/{t}" alt="">' for t in clip.thumbs)
             video_path = f"{source_name}/{clip.file}"
             transcript_escaped = html_lib.escape(clip.transcript)
             html += f'''            <div class="video-card" data-transcript="{transcript_escaped}" data-source="{source_name}" data-clip="{clip.name}" data-video="{video_path}">

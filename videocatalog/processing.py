@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+from PIL import Image, ImageOps
+
 from .models import ClipInfo, VideoMetadata, CatalogEntry, CutCandidate
 
 
@@ -510,6 +512,36 @@ def generate_thumbnails(video_path: Path, thumb_dir: Path, count: int = 12) -> l
     return thumbs
 
 
+SPRITE_THUMB_W, SPRITE_THUMB_H = 320, 180
+SPRITE_GAP = 2
+
+
+def create_sprite(thumb_dir: Path, thumb_names: list[str], video_stem: str) -> str | None:
+    """Create sprite from thumbnails and delete originals. Returns sprite filename."""
+    if not thumb_names:
+        return None
+
+    cols, rows = 4, 3
+    sprite_w = SPRITE_THUMB_W * cols + SPRITE_GAP * (cols - 1)
+    sprite_h = SPRITE_THUMB_H * rows + SPRITE_GAP * (rows - 1)
+    sprite = Image.new('RGBA', (sprite_w, sprite_h), (0, 0, 0, 0))
+
+    for i, thumb_name in enumerate(thumb_names):
+        thumb_path = thumb_dir / thumb_name
+        if not thumb_path.exists():
+            continue
+        col, row = i % cols, i // cols
+        x = col * (SPRITE_THUMB_W + SPRITE_GAP)
+        y = row * (SPRITE_THUMB_H + SPRITE_GAP)
+        img = ImageOps.fit(Image.open(thumb_path), (SPRITE_THUMB_W, SPRITE_THUMB_H), Image.LANCZOS)
+        sprite.paste(img, (x, y))
+        thumb_path.unlink()
+
+    sprite_name = f"{video_stem}_sprite.webp"
+    sprite.save(thumb_dir / sprite_name, 'WEBP', quality=85)
+    return sprite_name
+
+
 _whisper_model = None
 
 
@@ -683,7 +715,7 @@ def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool 
                 wav.unlink(missing_ok=True)
             raise
 
-    # Phase 4: Generate thumbnails in parallel
+    # Phase 4: Generate thumbnails and sprites in parallel
     print("  Generating thumbnails...")
     thumb_results = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -695,6 +727,13 @@ def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool 
             except Exception as e:
                 print(f"    Error generating thumbnails for {mp4.name}: {e}")
                 thumb_results[mp4] = []
+
+    # Create sprites from thumbnails (deletes individual thumbs)
+    print("  Creating sprites...")
+    sprite_results = {}
+    for mp4_file in mp4_files:
+        thumbs = thumb_results.get(mp4_file, [])
+        sprite_results[mp4_file] = create_sprite(thumb_dir, thumbs, mp4_file.stem)
 
     # Build final clip list (preserve original order)
     clips = []
@@ -708,12 +747,13 @@ def process_clips(video_subdir: Path, video_files: list[Path], transcribe: bool 
             transcript = ""
 
         duration = get_video_duration(mp4_file)
-        thumbs = thumb_results.get(mp4_file, [])
+        sprite = sprite_results.get(mp4_file)
 
         clips.append(ClipInfo(
             file=mp4_file.name,
             name=mp4_file.stem,
-            thumbs=[f"thumbs/{t}" for t in thumbs],
+            thumbs=[],
+            sprite=f"thumbs/{sprite}" if sprite else None,
             duration=format_duration(duration),
             transcript=transcript
         ))

@@ -12,6 +12,7 @@ class ClipInfo(BaseModel):
     file: str
     name: str
     thumbs: list[str]
+    sprite: str | None = None
     duration: str
     transcript: str
 
