@@ -164,6 +164,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         }
         .clip-group.collapsed .toggle-icon { transform: rotate(-90deg); }
         .clip-group.collapsed .gallery { display: none; }
+        .clip-group.hidden { display: none; }
         .clip-group-header .group-name {
             font-size: 14px;
             font-weight: 500;
@@ -216,6 +217,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
             overflow: hidden;
         }
         .video-card.hidden { display: none; }
+        .source-group.hidden { display: none; }
         .thumb-grid {
             cursor: pointer;
         }
@@ -1153,6 +1155,25 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 } else {
                     transcriptEl.textContent = card.dataset.transcript;
                 }
+            });
+
+            // Hide empty clip-groups
+            document.querySelectorAll('.clip-group').forEach(group => {
+                const visibleCards = group.querySelectorAll('.video-card:not(.hidden)').length;
+                group.classList.toggle('hidden', visibleCards === 0);
+            });
+
+            // Update source-group counts and visibility
+            document.querySelectorAll('.source-group').forEach(group => {
+                const visibleCards = group.querySelectorAll('.video-card:not(.hidden)').length;
+                const totalCards = group.querySelectorAll('.video-card').length;
+                const countEl = group.querySelector('.clip-count');
+                if (visibleCards === totalCards) {
+                    countEl.textContent = `${totalCards} clips`;
+                } else {
+                    countEl.textContent = `${visibleCards}/${totalCards} clips`;
+                }
+                group.classList.toggle('hidden', visibleCards === 0);
             });
 
             groups.forEach(g => g.classList.remove('collapsed'));
