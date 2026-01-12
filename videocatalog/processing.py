@@ -317,18 +317,92 @@ def check_scene_stability(
     return is_flash, sim_short, sim_long
 
 
+def check_side_stability(
+    video_path: Path,
+    time: float,
+    threshold: float = 0.7
+) -> tuple[bool, float, float]:
+    """Check if at least one side of cut has stable/similar frames.
+
+    At a real cut, frames before the cut should be similar to each other,
+    OR frames after the cut should be similar to each other.
+    Camera motion has instability on BOTH sides.
+
+    Returns (has_stable_side, sim_before, sim_after).
+    """
+    import cv2
+
+    def compare_histogram(img1, img2) -> float:
+        if img1 is None or img2 is None:
+            return 0.0
+        hsv1 = cv2.cvtColor(img1, cv2.COLOR_BGR2HSV)
+        hsv2 = cv2.cvtColor(img2, cv2.COLOR_BGR2HSV)
+        hist1 = cv2.calcHist([hsv1], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        hist2 = cv2.calcHist([hsv2], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        cv2.normalize(hist1, hist1)
+        cv2.normalize(hist2, hist2)
+        return cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+
+    tmp_dir = Path(tempfile.gettempdir())
+    frames = {}
+    times = {
+        'before_far': max(0, time - 2.0),
+        'before_near': max(0, time - 0.5),
+        'after_near': time + 0.5,
+        'after_far': time + 2.0
+    }
+
+    try:
+        for name, t in times.items():
+            path = tmp_dir / f"side_{name}_{os.getpid()}.png"
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(t), "-i", str(video_path),
+                "-frames:v", "1", "-f", "image2", str(path)
+            ], capture_output=True)
+            frames[name] = cv2.imread(str(path)) if path.exists() else None
+
+        # Compare frames on each side
+        sim_before = compare_histogram(frames['before_far'], frames['before_near'])
+        sim_after = compare_histogram(frames['after_near'], frames['after_far'])
+
+        # At least one side should be stable for a real cut
+        has_stable_side = sim_before >= threshold or sim_after >= threshold
+        return has_stable_side, sim_before, sim_after
+
+    finally:
+        for name in times:
+            path = tmp_dir / f"side_{name}_{os.getpid()}.png"
+            path.unlink(missing_ok=True)
+
+
+def is_near_noise_zone(
+    time: float,
+    noise_zones: list[NoiseZone] | None,
+    margin: float = 10.0
+) -> bool:
+    """Check if timestamp is within margin of any noise zone."""
+    if not noise_zones:
+        return False
+    for zone in noise_zones:
+        if zone.start - margin <= time <= zone.end + margin:
+            return True
+    return False
+
+
 def verify_candidates(
     video_path: Path,
     candidates: list[CutCandidate],
     scene_max_scores: dict[int, float],
+    noise_zones: list[NoiseZone] | None = None,
     threshold: float = 0.7,
     verbose: bool = False
 ) -> list[CutCandidate]:
-    """Filter candidates by verifying with histogram comparison and flash detection.
+    """Filter candidates by verifying with histogram comparison, flash and side stability.
 
     - Black frame corroboration: pass without checks (strong signal)
-    - Borderline (max_score < 10): histogram verification first
-    - All others: flash detection via stability check
+    - Near noise zones: histogram verification required
+    - Audio corroboration: side stability + flash check (catches camera motion)
+    - Scene-only: histogram + stability checks
     """
     if verbose:
         print(f"  Verifying {len(candidates)} candidates with histogram comparison...")
@@ -338,16 +412,36 @@ def verify_candidates(
         max_score = scene_max_scores.get(int(c.time), 0)
         has_black = c.black_duration >= 0.2
         has_audio = c.audio_step >= 5
+        near_noise = is_near_noise_zone(c.time, noise_zones)
 
-        # Black or audio corroboration = likely real cut, skip flash detection
-        if has_black or has_audio:
+        # Black frame = strong signal, skip all checks
+        if has_black:
             if verbose:
-                signal = "black frame" if has_black else "audio"
-                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS ({signal})")
+                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (black frame)")
             verified.append(c)
             continue
 
-        # Borderline detections need histogram check first
+        # Near noise zones: apply histogram verification (catches VHS static)
+        if near_noise:
+            is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
+            if not is_valid:
+                if verbose:
+                    print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (noise zone)")
+                continue
+
+        # Audio corroboration: pass without histogram check, just flash check
+        if has_audio:
+            is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
+            if is_flash:
+                if verbose:
+                    print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+                continue
+            if verbose:
+                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (audio)")
+            verified.append(c)
+            continue
+
+        # Borderline scene-only detections need histogram check
         if max_score < 10:
             is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
             if not is_valid:
@@ -355,7 +449,7 @@ def verify_candidates(
                     print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)")
                 continue
 
-        # Flash detection for scene-only candidates (no black/audio corroboration)
+        # Flash detection for scene-only candidates
         is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
         if is_flash:
             if verbose:
@@ -634,7 +728,7 @@ def detect_cuts(
         return_all=True
     )
 
-    verified = verify_candidates(video_path, cuts, scene_max, verbose=verbose)
+    verified = verify_candidates(video_path, cuts, scene_max, noise_zones=noise_zones, verbose=verbose)
 
     return CutDetectionResult(
         cuts=verified,
