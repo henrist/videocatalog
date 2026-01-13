@@ -346,6 +346,9 @@ function renderGroupsForSource(source) {
   const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
   if (!sourceGroup) return;
 
+  // Save scroll position before DOM manipulation
+  const savedScrollY = window.scrollY;
+
   // Collect all cards from both main gallery and existing clip-groups
   const allCards = Array.from(sourceGroup.querySelectorAll('.video-card'));
 
@@ -452,6 +455,9 @@ function renderGroupsForSource(source) {
 
   // Replace main gallery with new content
   mainGallery.replaceWith(contentContainer);
+
+  // Restore scroll position after DOM manipulation
+  window.scrollTo(0, savedScrollY);
 
   // Re-render all clip tags (inheritance may have changed)
   sourceGroup.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
