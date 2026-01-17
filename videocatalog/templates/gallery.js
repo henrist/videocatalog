@@ -1157,3 +1157,35 @@ tagFiltersEl.addEventListener('click', (e) => {
 });
 
 renderTagFilters();
+
+// Lazy loading with debounced Intersection Observer
+const pendingImages = new Set();
+let lazyLoadTimeout = null;
+
+function loadPendingImages() {
+  pendingImages.forEach(img => {
+    if (img.dataset.src && !img.src) {
+      img.src = img.dataset.src;
+    }
+  });
+  pendingImages.clear();
+}
+
+const lazyObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      pendingImages.add(entry.target);
+    } else {
+      pendingImages.delete(entry.target);
+    }
+  });
+
+  // Debounce: only load images that stay visible
+  clearTimeout(lazyLoadTimeout);
+  lazyLoadTimeout = setTimeout(loadPendingImages, 150);
+}, { rootMargin: '200px' });
+
+// Observe all images with data-src
+document.querySelectorAll('.thumb-grid img[data-src]').forEach(img => {
+  lazyObserver.observe(img);
+});

@@ -33,10 +33,10 @@
       <div class="video-card" data-transcript="{{ clip.transcript }}" data-source="{{ source.name }}" data-clip="{{ clip.name }}" data-video="{{ source.name }}/{{ clip.file }}">
         <div class="thumb-grid">
 {%- if clip.sprite -%}
-          <img src="{{ source.name }}/{{ clip.sprite }}" alt="">
+          <img loading="lazy" data-src="{{ source.name }}/{{ clip.sprite }}" alt="">
 {%- else -%}
 {%- for thumb in clip.thumbs -%}
-          <img src="{{ source.name }}/{{ thumb }}" alt="">
+          <img loading="lazy" data-src="{{ source.name }}/{{ thumb }}" alt="">
 {%- endfor -%}
 {%- endif -%}
         </div>
