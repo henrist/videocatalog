@@ -568,9 +568,8 @@ function getNextCardInGroup(card) {
     return groupCards[idx + 1] || null;  // Stop at group boundary
   }
 
-  // Card is ungrouped - play through ungrouped clips in the main gallery
-  const sourceGroup = card.closest('.source-group');
-  const mainGallery = sourceGroup.querySelector(':scope > .gallery');
+  // Card is ungrouped - play through ungrouped clips in its gallery section
+  const mainGallery = card.closest('.gallery');
   if (mainGallery) {
     const ungroupedCards = Array.from(mainGallery.querySelectorAll('.video-card:not(.hidden)'));
     const idx = ungroupedCards.indexOf(card);
