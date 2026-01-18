@@ -1,5 +1,6 @@
 """Video splitting at detected cut boundaries."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from .models import CutCandidate
@@ -7,7 +8,11 @@ from .utils import format_time, format_time_filename, run_ffmpeg
 
 
 def split_video(
-    video_path: Path, output_dir: Path, cuts: list[CutCandidate], duration: float
+    video_path: Path,
+    output_dir: Path,
+    cuts: list[CutCandidate],
+    duration: float,
+    log: Callable[[str], None] = print,
 ) -> list[Path]:
     """Split video at cut boundaries, transcoding to MP4."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -25,7 +30,7 @@ def split_video(
         output_path = output_dir / f"{stem}_{time_stamp}.mp4"
         output_files.append(output_path)
 
-        print(
+        log(
             f"  Segment {segment_num}: {format_time(start)} -> {format_time(end)} => {output_path.name}"
         )
 

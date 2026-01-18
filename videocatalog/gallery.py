@@ -3,6 +3,7 @@
 import html as html_lib
 import importlib.resources
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from jinja2 import BaseLoader, Environment
@@ -25,9 +26,11 @@ def _load_template_file(name: str) -> str:
     return importlib.resources.files(__package__).joinpath("templates", name).read_text()
 
 
-def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
+def generate_gallery(
+    output_dir: Path, transcribe: bool = True, log: Callable[[str], None] = print
+) -> None:
     """Generate HTML gallery from all processed videos in subdirectories."""
-    print("Generating gallery...")
+    log("Generating gallery...")
 
     sources = []
     all_user_edits = {}

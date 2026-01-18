@@ -2,6 +2,7 @@
 
 import multiprocessing
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from .utils import (
 )
 
 
-def convert_to_mp4(video_path: Path, threads: int = 0) -> Path:
+def convert_to_mp4(video_path: Path, threads: int = 0, log: Callable[[str], None] = print) -> Path:
     """Convert video to MP4 if not already.
 
     Args:
@@ -30,7 +31,7 @@ def convert_to_mp4(video_path: Path, threads: int = 0) -> Path:
     if mp4_path.exists():
         return mp4_path
 
-    print("    Converting to MP4...")
+    log("    Converting to MP4...")
     cmd = [
         "ffmpeg",
         "-y",
@@ -62,6 +63,7 @@ def process_clips(
     transcribe: bool = True,
     workers: int = 0,
     transcribe_workers: int = 1,
+    log: Callable[[str], None] = print,
 ) -> list[ClipInfo]:
     """Process clips with parallel audio extraction and thumbnails."""
     thumb_dir = video_subdir / "thumbs"
@@ -70,7 +72,7 @@ def process_clips(
     if workers <= 0:
         workers = get_default_workers()
 
-    print(f"Processing {len(video_files)} clips (workers={workers})...")
+    log(f"Processing {len(video_files)} clips (workers={workers})...")
 
     # Phase 1: Convert to MP4 if needed (parallel)
     non_mp4 = [(i, v) for i, v in enumerate(video_files) if v.suffix.lower() != ".mp4"]
@@ -80,17 +82,17 @@ def process_clips(
         cpu_count = os.cpu_count() or 4
         convert_workers = min(workers, len(non_mp4))
         threads = max(1, cpu_count // convert_workers)
-        print(
+        log(
             f"  Converting {len(non_mp4)} non-MP4 files ({convert_workers} workers, {threads} threads each)..."
         )
         with ThreadPoolExecutor(max_workers=convert_workers) as executor:
-            futures = {executor.submit(convert_to_mp4, v, threads): i for i, v in non_mp4}
+            futures = {executor.submit(convert_to_mp4, v, threads, log): i for i, v in non_mp4}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:
                     mp4_results[idx] = future.result()
                 except Exception as e:
-                    print(f"    Error converting {video_files[idx].name}: {e}")
+                    log(f"    Error converting {video_files[idx].name}: {e}")
                     mp4_results[idx] = video_files[idx]  # keep original on error
     # Build mp4_files list preserving order
     mp4_files = [
@@ -99,7 +101,7 @@ def process_clips(
     ]
 
     # Phase 2: Get durations for all files (needed for thumbnails and final clip info)
-    print("  Getting durations...")
+    log("  Getting durations...")
     durations = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(get_video_duration, f): f for f in mp4_files}
@@ -108,7 +110,7 @@ def process_clips(
             try:
                 durations[mp4] = future.result()
             except Exception as e:
-                print(f"    Error getting duration for {mp4.name}: {e}")
+                log(f"    Error getting duration for {mp4.name}: {e}")
                 durations[mp4] = 0.0
 
     # Phase 3: Extract audio in parallel (for files needing transcription)
@@ -116,7 +118,7 @@ def process_clips(
     if transcribe:
         to_transcribe = [f for f in mp4_files if not f.with_suffix(".txt").exists()]
         if to_transcribe:
-            print(f"  Extracting audio for {len(to_transcribe)} files...")
+            log(f"  Extracting audio for {len(to_transcribe)} files...")
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {executor.submit(extract_audio, f): f for f in to_transcribe}
                 for future in as_completed(futures):
@@ -124,17 +126,17 @@ def process_clips(
                     try:
                         wav_map[mp4] = future.result()
                     except Exception as e:
-                        print(f"    Error extracting audio for {mp4.name}: {e}")
+                        log(f"    Error extracting audio for {mp4.name}: {e}")
 
     # Phase 4: Transcribe (parallel with multiprocessing if transcribe_workers > 1)
     transcripts = {}
     if transcribe and wav_map:
-        print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
+        log(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
         try:
             if transcribe_workers == 1:
                 # Sequential - no multiprocessing overhead
                 for i, (mp4, wav) in enumerate(wav_map.items(), 1):
-                    print(f"    [{i}/{len(wav_map)}] {mp4.name}")
+                    log(f"    [{i}/{len(wav_map)}] {mp4.name}")
                     transcripts[mp4] = transcribe_from_wav(mp4, wav)
             else:
                 # Parallel - each process loads own model
@@ -145,7 +147,7 @@ def process_clips(
                     for i, (video_path_str, transcript) in enumerate(
                         pool.imap_unordered(transcribe_worker, work_items), 1
                     ):
-                        print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
+                        log(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
                         transcripts[Path(video_path_str)] = transcript
                 finally:
                     pool.close()
@@ -157,7 +159,7 @@ def process_clips(
             raise
 
     # Phase 5: Generate thumbnails and sprites in parallel
-    print("  Generating thumbnails...")
+    log("  Generating thumbnails...")
     thumb_results = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
@@ -168,11 +170,11 @@ def process_clips(
             try:
                 thumb_results[mp4] = future.result()
             except Exception as e:
-                print(f"    Error generating thumbnails for {mp4.name}: {e}")
+                log(f"    Error generating thumbnails for {mp4.name}: {e}")
                 thumb_results[mp4] = []
 
     # Create sprites from thumbnails (deletes individual thumbs)
-    print("  Creating sprites...")
+    log("  Creating sprites...")
     sprite_results = {}
     for mp4_file in mp4_files:
         thumbs = thumb_results.get(mp4_file, [])

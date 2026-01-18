@@ -1,11 +1,13 @@
 """Command-line interface for videocatalog."""
 
 import argparse
+import io
 import multiprocessing
 import os
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +36,16 @@ from .utils import (
     parse_timestamp,
     run_ffmpeg,
 )
+
+
+@contextmanager
+def detection_log_file(log_path: Path | None):
+    """Context manager that yields a file or StringIO if log_path is None."""
+    if log_path is None:
+        yield io.StringIO()
+    else:
+        with open(log_path, "w") as f:
+            yield f
 
 
 def find_video_subdirs(output_dir: Path) -> list[tuple[Path, list[Path]]]:
@@ -184,37 +196,39 @@ def cmd_process(args):
         if metadata_path.exists():
             metadata_path.unlink()
 
-    print(f"Analyzing: {args.input}")
-    print()
-
-    # Calculate time range
-    full_duration = get_video_duration(args.input)
-    start_time = args.start
-    end_time = (start_time + args.limit) if args.limit > 0 else full_duration
-    end_time = min(end_time, full_duration)
-
-    if start_time > 0 or end_time < full_duration:
-        print(
-            f"Duration: {format_time(full_duration)} (analyzing {format_time(start_time)} - {format_time(end_time)})"
-        )
-    else:
-        print(f"Duration: {format_time(full_duration)}")
-    print()
-
-    print("Running detection...")
-
     # Create log file for detection output
-    video_subdir.mkdir(parents=True, exist_ok=True)
-    log_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = video_subdir / f"detection_log_{log_timestamp}.txt"
+    log_path = None
+    if not args.dry_run:
+        video_subdir.mkdir(parents=True, exist_ok=True)
+        log_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = video_subdir / f"detection_log_{log_timestamp}.txt"
 
-    with open(log_path, "w") as log_file:
-        # Write processing parameters
-        log_file.write(f"Source: {args.input}\n")
-        log_file.write(f"Duration: {format_time(full_duration)}")
+    with detection_log_file(log_path) as log_file:
+
+        def log(msg: str):
+            """Write to both console and log file."""
+            print(msg)
+            log_file.write(msg + "\n")
+
+        log(f"Analyzing: {args.input}")
+        log("")
+
+        # Calculate time range
+        full_duration = get_video_duration(args.input)
+        start_time = args.start
+        end_time = (start_time + args.limit) if args.limit > 0 else full_duration
+        end_time = min(end_time, full_duration)
+
         if start_time > 0 or end_time < full_duration:
-            log_file.write(f" (analyzing {format_time(start_time)} - {format_time(end_time)})")
-        log_file.write(f"\nmin_confidence={args.min_confidence}, min_gap={args.min_gap}\n\n")
+            log(
+                f"Duration: {format_time(full_duration)} (analyzing {format_time(start_time)} - {format_time(end_time)})"
+            )
+        else:
+            log(f"Duration: {format_time(full_duration)}")
+        log(f"min_confidence={args.min_confidence}, min_gap={args.min_gap}")
+        log("")
+
+        log("Running detection...")
 
         result, cuts, all_candidates = run_detection_with_logging(
             args.input,
@@ -231,12 +245,12 @@ def cmd_process(args):
             sys.exit(0)
 
         if args.dry_run:
-            print("[Dry run - no files created]")
+            log("[Dry run - no files created]")
             return
 
-        print(f"Splitting to: {video_subdir}")
-        output_files = split_video(args.input, video_subdir, cuts, duration)
-        print()
+        log(f"Splitting to: {video_subdir}")
+        output_files = split_video(args.input, video_subdir, cuts, duration, log=log)
+        log("")
 
         # Save splits.json with all detection data
         boundaries = [0.0] + [c.time for c in cuts] + [duration]
@@ -281,15 +295,16 @@ def cmd_process(args):
             transcribe=not args.skip_transcribe,
             workers=args.workers,
             transcribe_workers=args.transcribe_workers,
+            log=log,
         )
         metadata = VideoMetadata(
             source_file=args.input.name, processed_date=datetime.now().isoformat(), clips=clips
         )
         metadata.save(metadata_path)
 
-        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
-        print()
-        print("Done!")
+        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe, log=log)
+        log("")
+        log("Done!")
 
 
 def cmd_serve(args):
