@@ -11,7 +11,7 @@
 <body>
   <div class="app-layout">
     <nav class="nav-panel">
-      <div class="nav-header">Sources</div>
+      <div class="nav-header">Sources <span class="nav-global-stats"><span id="global-clip-count">0</span> clips · <span id="global-duration">0m</span></span></div>
       <ul class="nav-list">
 {% for source in sources %}
         <li class="nav-item" data-source="{{ source.name }}">

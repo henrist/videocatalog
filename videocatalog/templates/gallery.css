@@ -38,6 +38,13 @@ h1 { margin-bottom: 20px; }
   color: #666;
   border-bottom: 1px solid #333;
 }
+.nav-global-stats {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #555;
+  margin-left: 6px;
+}
 .nav-list {
   list-style: none;
 }

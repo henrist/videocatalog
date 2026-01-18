@@ -1329,6 +1329,9 @@ updateActiveNav();
 
 // Update nav on filter changes
 function updateNavCounts() {
+  let globalVisibleClips = 0;
+  let globalVisibleSecs = 0;
+
   document.querySelectorAll('.nav-item').forEach(item => {
     const source = item.dataset.source;
     const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
@@ -1359,7 +1362,15 @@ function updateNavCounts() {
 
     // Dim if no visible clips
     item.classList.toggle('dimmed', visibleCards.length === 0);
+
+    // Accumulate global totals
+    globalVisibleClips += visibleCards.length;
+    globalVisibleSecs += visibleSecs;
   });
+
+  // Update global stats in nav header
+  document.getElementById('global-clip-count').textContent = globalVisibleClips;
+  document.getElementById('global-duration').textContent = formatDuration(globalVisibleSecs);
 }
 
 // Update sticky offsets based on header height
