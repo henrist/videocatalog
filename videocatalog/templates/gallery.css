@@ -182,7 +182,7 @@ body.api-available .source-header:hover .start-group-btn { display: inline; }
   border: none;
   object-fit: cover;
 }
-.thumb-grid img:not([src]) {
+.thumb-grid img.lazy {
   background: linear-gradient(90deg, #2a2a2a 25%, #323232 50%, #2a2a2a 75%);
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;

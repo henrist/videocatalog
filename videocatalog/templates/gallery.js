@@ -1163,7 +1163,8 @@ let lazyLoadTimeout = null;
 
 function loadPendingImages() {
   pendingImages.forEach(img => {
-    if (img.dataset.src && !img.src) {
+    if (img.dataset.src && img.classList.contains('lazy')) {
+      img.onload = () => img.classList.remove('lazy');
       img.src = img.dataset.src;
     }
   });
@@ -1179,12 +1180,16 @@ const lazyObserver = new IntersectionObserver((entries) => {
     }
   });
 
-  // Debounce: only load images that stay visible
-  clearTimeout(lazyLoadTimeout);
-  lazyLoadTimeout = setTimeout(loadPendingImages, 150);
-}, { rootMargin: '200px' });
+  // Load images that stay visible after 150ms (don't reset timer on new events)
+  if (!lazyLoadTimeout && pendingImages.size > 0) {
+    lazyLoadTimeout = setTimeout(() => {
+      loadPendingImages();
+      lazyLoadTimeout = null;
+    }, 150);
+  }
+}, { rootMargin: '800px' });
 
-// Observe all images with data-src
-document.querySelectorAll('.thumb-grid img[data-src]').forEach(img => {
+// Observe all lazy images
+document.querySelectorAll('.thumb-grid img.lazy').forEach(img => {
   lazyObserver.observe(img);
 });
