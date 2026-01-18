@@ -1324,37 +1324,19 @@ renderTagFilters();
 updateHiddenToggle();
 applyAllFilters(); // Hide hidden clips on page load
 
-// Lazy loading with debounced Intersection Observer
-const pendingImages = new Set();
-let lazyLoadTimeout = null;
-
-function loadPendingImages() {
-  pendingImages.forEach(img => {
-    if (img.dataset.src && img.classList.contains('lazy')) {
-      img.onload = () => img.classList.remove('lazy');
-      img.src = img.dataset.src;
-    }
-  });
-  pendingImages.clear();
-}
-
+// Lazy loading with Intersection Observer
 const lazyObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
-      pendingImages.add(entry.target);
-    } else {
-      pendingImages.delete(entry.target);
+      const img = entry.target;
+      if (img.dataset.src && img.classList.contains('lazy')) {
+        img.onload = () => img.classList.remove('lazy');
+        img.src = img.dataset.src;
+        lazyObserver.unobserve(img);
+      }
     }
   });
-
-  // Load images that stay visible after 150ms (don't reset timer on new events)
-  if (!lazyLoadTimeout && pendingImages.size > 0) {
-    lazyLoadTimeout = setTimeout(() => {
-      loadPendingImages();
-      lazyLoadTimeout = null;
-    }, 150);
-  }
-}, { rootMargin: '800px' });
+}, { rootMargin: `${Math.round(window.innerHeight * 1.5)}px` });
 
 // Observe all lazy images
 document.querySelectorAll('.thumb-grid img.lazy').forEach(img => {
