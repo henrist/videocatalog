@@ -1,6 +1,7 @@
 """Shared utilities for video processing."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -75,3 +76,52 @@ def format_time_filename(seconds: float) -> str:
 def get_default_workers() -> int:
     """Get default worker count for ffmpeg operations."""
     return min(os.cpu_count() or 4, 8)
+
+
+def parse_timestamp(value: str) -> float:
+    """Parse timestamp string to seconds.
+
+    Accepts:
+      - Seconds as float: "47.5" → 47.5
+      - Timestamp format: "47m40s" → 2860.0, "1h2m3s" → 3723.0
+    """
+    # Try parsing as plain float first
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # Parse timestamp format: 1h2m3s, 2m30s, 45s, etc.
+    pattern = r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$"
+    match = re.match(pattern, value)
+    if not match:
+        raise ValueError(f"Invalid timestamp format: {value}")
+
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = float(match.group(3) or 0)
+
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def get_video_fps(video_path: Path) -> float:
+    """Get video frame rate."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=r_frame_rate",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    result = run_ffmpeg(cmd, check=True)
+    # r_frame_rate returns "30/1" or "30000/1001" format
+    fps_str = result.stdout.strip()
+    if "/" in fps_str:
+        num, den = fps_str.split("/")
+        return float(num) / float(den)
+    return float(fps_str)

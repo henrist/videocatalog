@@ -26,7 +26,14 @@ from .preprocess import preprocess_dv_file
 from .processing import convert_to_mp4, process_clips
 from .splitting import split_video
 from .transcription import extract_audio, transcribe_from_wav, transcribe_worker
-from .utils import format_time, get_default_workers, get_video_duration
+from .utils import (
+    format_time,
+    get_default_workers,
+    get_video_duration,
+    get_video_fps,
+    parse_timestamp,
+    run_ffmpeg,
+)
 
 
 def find_video_subdirs(output_dir: Path) -> list[tuple[Path, list[Path]]]:
@@ -427,6 +434,65 @@ def cmd_gallery(args):
     print("Done!")
 
 
+def cmd_frames(args):
+    """Extract frames at a specific timestamp for debugging."""
+    if not args.input.exists():
+        print(f"Error: Input file not found: {args.input}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        timestamp = parse_timestamp(args.at)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    output_dir = args.output
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get video fps for calculating frame timestamps
+    fps = get_video_fps(args.input)
+    video_stem = args.input.stem
+
+    # Extract frames to temp files
+    # Fast seek, then limit frame count based on fps * duration
+    num_frames = int(fps * args.duration) + 1
+    temp_pattern = output_dir / "frame_%04d.jpg"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(timestamp),
+        "-i",
+        str(args.input),
+        "-frames:v",
+        str(num_frames),
+        "-q:v",
+        "2",
+        str(temp_pattern),
+    ]
+    result = run_ffmpeg(cmd)
+    if result.returncode != 0:
+        print(f"Error extracting frames: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    # Rename frames with actual timestamps
+    frame_files = sorted(output_dir.glob("frame_*.jpg"))
+    renamed_files = []
+    for i, frame_file in enumerate(frame_files):
+        frame_time = timestamp + (i / fps)
+        minutes = int(frame_time // 60)
+        secs = int(frame_time % 60)
+        millis = int((frame_time % 1) * 1000)
+        new_name = f"{video_stem}_{minutes:02d}m{secs:02d}s{millis:03d}ms.jpg"
+        new_path = output_dir / new_name
+        frame_file.rename(new_path)
+        renamed_files.append(new_path)
+
+    print(f"Extracted {len(renamed_files)} frames:")
+    for f in renamed_files:
+        print(f"  {f}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Video catalog: split recordings, transcribe, and generate gallery"
@@ -535,6 +601,18 @@ def main():
         "--output-dir", type=Path, default=Path("output"), help="Output directory (default: output)"
     )
     p_gallery.set_defaults(func=cmd_gallery)
+
+    # frames subcommand
+    p_frames = subparsers.add_parser("frames", help="Extract frames at timestamp for debugging")
+    p_frames.add_argument("input", type=Path, help="Input video file")
+    p_frames.add_argument("--at", required=True, help="Timestamp (e.g., 47.5, 47m40s, 1h2m3s)")
+    p_frames.add_argument(
+        "--output", type=Path, default=Path("frames"), help="Output directory (default: frames)"
+    )
+    p_frames.add_argument(
+        "--duration", type=float, default=1.0, help="Duration in seconds (default: 1.0)"
+    )
+    p_frames.set_defaults(func=cmd_frames)
 
     args = parser.parse_args()
     args.func(args)
