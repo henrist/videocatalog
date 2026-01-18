@@ -28,6 +28,7 @@ from .processing import (
     transcribe_video,
     extract_audio,
     process_clips,
+    preprocess_dv_file,
     _get_default_workers,
     _transcribe_worker,
     _transcribe_from_wav,
@@ -39,8 +40,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Split video at recording boundaries using multi-signal detection"
     )
-    parser.add_argument("input", type=Path, nargs="?", help="Input video file")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
+    parser.add_argument("input", type=Path, nargs="?", help="Input video file or directory")
+    parser.add_argument("--output-dir", type=Path, help="Output directory (required except with --preprocess)")
     parser.add_argument("--min-confidence", type=int, default=12,
                         help="Minimum confidence score for cuts (default: 12)")
     parser.add_argument("--min-gap", type=float, default=1.0,
@@ -79,6 +80,10 @@ def main():
                         help="Number of parallel workers for ffmpeg (default: auto)")
     parser.add_argument("--transcribe-workers", type=int, default=1,
                         help="Number of parallel Whisper workers (default: 1, each uses ~3GB RAM)")
+    parser.add_argument("--preprocess", action="store_true",
+                        help="Preprocess DV files: convert to MP4 with deinterlacing")
+    parser.add_argument("--target-dir", type=Path,
+                        help="Target directory for preprocessed files (required with --preprocess)")
 
     args = parser.parse_args()
 
@@ -96,6 +101,63 @@ def main():
                 if videos:
                     subdirs.append((subdir, videos))
         return subdirs
+
+    if args.preprocess:
+        if not args.target_dir:
+            print("Error: --target-dir required with --preprocess", file=sys.stderr)
+            sys.exit(1)
+        if not args.input:
+            print("Error: input source directory required with --preprocess", file=sys.stderr)
+            sys.exit(1)
+        if not args.input.is_dir():
+            print(f"Error: Input must be a directory: {args.input}", file=sys.stderr)
+            sys.exit(1)
+
+        args.target_dir.mkdir(parents=True, exist_ok=True)
+        avi_files = sorted(f for f in args.input.iterdir() if f.is_file() and f.suffix.lower() == '.avi')
+
+        if not avi_files:
+            print(f"No .avi files found in {args.input}")
+            sys.exit(0)
+
+        # Partition into skip/convert
+        to_convert = []
+        for avi in avi_files:
+            mp4_path = args.target_dir / f"{avi.stem}.mp4"
+            if mp4_path.exists():
+                print(f"Skip (exists): {avi.name}")
+            else:
+                to_convert.append((avi, mp4_path))
+
+        if not to_convert:
+            print("All files already converted")
+            sys.exit(0)
+
+        workers = args.workers if args.workers > 0 else _get_default_workers()
+        print(f"Converting {len(to_convert)} files ({workers} workers)...")
+
+        def convert_one(item: tuple[Path, Path]) -> str:
+            src, dst = item
+            preprocess_dv_file(src, dst)
+            return src.name
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(convert_one, item): item for item in to_convert}
+            for i, future in enumerate(as_completed(futures), 1):
+                src, _ = futures[future]
+                try:
+                    future.result()
+                    print(f"  [{i}/{len(to_convert)}] {src.name}")
+                except Exception as e:
+                    print(f"  [{i}/{len(to_convert)}] {src.name} FAILED: {e}")
+
+        print("Done!")
+        return
+
+    # All other modes require --output-dir
+    if not args.output_dir:
+        print("Error: --output-dir is required", file=sys.stderr)
+        sys.exit(1)
 
     if args.serve:
         from .server import run_server

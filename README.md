@@ -15,6 +15,9 @@ Automatically detects recording boundaries, splits into clips, transcribes audio
 # Install dependencies
 uv sync
 
+# Preprocess DV files (deinterlace, convert to MP4)
+uv run videocatalog --preprocess /path/to/dv --target-dir /path/to/mp4
+
 # Process a video file
 uv run videocatalog video.avi --output-dir output
 
@@ -40,6 +43,8 @@ open http://localhost:8000
 - `--host` / `--port` - Server bind options
 - `--workers N` - Parallel workers for ffmpeg operations (default: auto)
 - `--transcribe-workers N` - Parallel Whisper instances (default: 1, each uses ~3GB RAM)
+- `--preprocess` - Convert DV files to MP4 with deinterlacing (use with `--target-dir`)
+- `--target-dir PATH` - Target directory for preprocessed files
 
 ## Docker
 

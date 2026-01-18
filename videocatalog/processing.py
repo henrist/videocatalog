@@ -809,6 +809,26 @@ def convert_to_mp4(video_path: Path) -> Path:
     return mp4_path
 
 
+def preprocess_dv_file(input_path: Path, output_path: Path) -> None:
+    """Convert DV file to MP4 with deinterlacing.
+
+    Designed for DV25 PAL source (~30 Mbps, 576i interlaced).
+    Output: H.264 MP4, CRF 18, deinterlaced.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(input_path),
+        "-vf", "yadif",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        str(output_path)
+    ]
+    _run_ffmpeg(cmd, check=True)
+
+
 def generate_thumbnails(video_path: Path, thumb_dir: Path, count: int = 12) -> list[str]:
     """Generate multiple thumbnails from video, always including first and last frame."""
     duration = get_video_duration(video_path)
