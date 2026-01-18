@@ -1009,6 +1009,13 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Handle group header click for expand/collapse
+  const groupHeader = e.target.closest('.clip-group-header');
+  if (groupHeader && !e.target.closest('.tag, .year-badge, .add-btn, .add-desc-btn, .group-actions')) {
+    groupHeader.closest('.clip-group').classList.toggle('collapsed');
+    return;
+  }
+
   // Handle thumb-grid clicks to play video
   const thumbGrid = e.target.closest('.thumb-grid');
   if (thumbGrid && videoCard) {
