@@ -69,7 +69,7 @@
           <div class="video-header">
             <div class="video-name">{{ clip.name }}</div>
             <div class="tags-year" data-source="{{ source.name }}" data-clip="{{ clip.name }}"></div>
-            <div class="video-duration">{{ clip.duration }}</div>
+            <div class="video-duration" data-secs="{{ clip.duration_secs }}">{{ clip.duration }}</div>
           </div>
           <div class="transcript-toggle" onclick="toggleTranscript(this)">Show transcript</div>
           <div class="transcript">{{ clip.transcript }}</div>

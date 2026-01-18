@@ -38,8 +38,13 @@ function clipInGroup(clipName, group) {
 // Find the group containing a clip
 function findGroupForClip(source, clipName) {
   const edits = userEdits[source] || {};
-  const groups = edits.groups || [];
-  return groups.find(g => clipInGroup(clipName, g));
+  return (edits.groups || []).find(g => clipInGroup(clipName, g));
+}
+
+// Find group by ID
+function findGroup(source, groupId) {
+  const edits = userEdits[source] || {};
+  return (edits.groups || []).find(g => g.id === groupId);
 }
 
 // Get resolved tags and year for a clip (with inheritance: video -> group -> clip)
@@ -127,14 +132,17 @@ function renderSourceTagsYear(container) {
   container.innerHTML = buildTagsYearHtml(videoMeta.tags || [], videoMeta.year);
 }
 
-// Render source descriptions
-function renderSourceDescription(container) {
+// Render description (works for both source and group)
+function renderDescription(container) {
   const source = container.dataset.source;
-  const edits = userEdits[source] || {};
-  const desc = edits.video?.description || '';
+  const groupId = container.dataset.groupId;
+  const desc = groupId
+    ? (findGroup(source, groupId)?.description || '')
+    : ((userEdits[source] || {}).video?.description || '');
   container.textContent = desc;
-  // Hide +description button if description exists
-  const addBtn = document.querySelector(`.add-desc-btn[data-source="${source}"]`);
+  const addBtn = groupId
+    ? container.closest('.clip-group')?.querySelector('.add-group-desc-btn')
+    : document.querySelector(`.add-desc-btn[data-source="${source}"]`);
   if (addBtn) addBtn.style.display = desc ? 'none' : '';
 }
 
@@ -143,13 +151,11 @@ function showDescriptionEditor(container) {
   const groupId = container.dataset.groupId || null;
   const isGroup = !!groupId;
 
-  const edits = userEdits[source] || {};
   let desc;
   if (isGroup) {
-    const group = (edits.groups || []).find(g => g.id === groupId);
-    desc = group?.description || '';
+    desc = findGroup(source, groupId)?.description || '';
   } else {
-    desc = edits.video?.description || '';
+    desc = (userEdits[source] || {}).video?.description || '';
   }
 
   container.classList.add('editing');
@@ -157,20 +163,18 @@ function showDescriptionEditor(container) {
   const textarea = container.querySelector('textarea');
   textarea.focus();
 
-  const renderFn = isGroup ? renderGroupDescription : renderSourceDescription;
-
   textarea.addEventListener('blur', async () => {
     const newDesc = textarea.value.trim();
     const meta = getCurrentMeta(source, null, groupId);
     meta.description = newDesc || null;
     await saveEdits(source, null, meta, groupId);
     container.classList.remove('editing');
-    renderFn(container);
+    renderDescription(container);
   });
   textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       container.classList.remove('editing');
-      renderFn(container);
+      renderDescription(container);
     }
   });
 }
@@ -239,19 +243,14 @@ tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(btn => {
   });
 });
 
-function startGroupMode(source) {
-  groupMode = { source, startClip: null, startCard: null, mode: 'create' };
+function startGroupMode(source, groupId = null) {
+  groupMode = groupId
+    ? { source, startClip: null, startCard: null, mode: 'edit-range', groupId }
+    : { source, startClip: null, startCard: null, mode: 'create' };
   document.body.classList.add('group-mode');
-  // Update button text
-  const btn = document.querySelector(`.start-group-btn[data-source="${source}"]`);
-  if (btn) btn.textContent = 'Select first clip...';
-}
-
-function startEditRangeMode(source, groupId) {
-  groupMode = { source, startClip: null, startCard: null, mode: 'edit-range', groupId };
-  document.body.classList.add('group-mode');
-  // Update edit range button text
-  const btn = document.querySelector(`.edit-range-btn[data-source="${source}"][data-group-id="${groupId}"]`);
+  const btn = groupId
+    ? document.querySelector(`.edit-range-btn[data-source="${source}"][data-group-id="${groupId}"]`)
+    : document.querySelector(`.start-group-btn[data-source="${source}"]`);
   if (btn) btn.textContent = 'Select first clip...';
 }
 
@@ -327,7 +326,7 @@ async function updateGroupRange(source, groupId, startClip, endClip) {
   const actualEndClip = startClip <= endClip ? endClip : startClip;
 
   const edits = userEdits[source] || {};
-  const group = (edits.groups || []).find(g => g.id === groupId);
+  const group = findGroup(source, groupId);
   if (group) {
     group.start_clip = actualStartClip;
     group.end_clip = actualEndClip;
@@ -360,23 +359,9 @@ async function createGroup(source, startClip, endClip) {
 
 // Render group tags/year
 function renderGroupTagsYear(container) {
-  const edits = userEdits[container.dataset.source] || {};
-  const group = (edits.groups || []).find(g => g.id === container.dataset.groupId);
+  const group = findGroup(container.dataset.source, container.dataset.groupId);
   if (!group) return;
   container.innerHTML = buildTagsYearHtml(group.tags || [], group.year);
-}
-
-// Render group description
-function renderGroupDescription(container) {
-  const source = container.dataset.source;
-  const groupId = container.dataset.groupId;
-  const edits = userEdits[source] || {};
-  const group = (edits.groups || []).find(g => g.id === groupId);
-  const desc = group?.description || '';
-  container.textContent = desc;
-  // Hide +description button if description exists
-  const addBtn = container.closest('.clip-group')?.querySelector('.add-group-desc-btn');
-  if (addBtn) addBtn.style.display = desc ? 'none' : '';
 }
 
 // Render all groups for a source (interleaved with ungrouped clips in natural order)
@@ -472,7 +457,7 @@ function renderGroupsForSource(source) {
 
         // Render group tags/year/description
         renderGroupTagsYear(groupDiv.querySelector('.group-tags-year'));
-        renderGroupDescription(groupDiv.querySelector('.group-description'));
+        renderDescription(groupDiv.querySelector('.group-description'));
       }
     } else {
       // Ungrouped card
@@ -529,7 +514,7 @@ async function saveEditsRaw(source, edits) {
 // Render all tags/year
 document.querySelectorAll('.source-tags-year').forEach(renderSourceTagsYear);
 document.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
-document.querySelectorAll('.source-description').forEach(renderSourceDescription);
+document.querySelectorAll('.source-description').forEach(renderDescription);
 
 // Render all groups
 groups.forEach(g => renderGroupsForSource(g.dataset.source));
@@ -765,17 +750,18 @@ collapseBtn.addEventListener('click', () => {
   groups.forEach(g => g.classList.toggle('collapsed', groupsCollapsed));
 });
 
+// Inline editing functionality
+const popup = document.getElementById('inlinePopup');
+let popupContext = null; // {source, clipName, type, tagIdx}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (groupMode) cancelGroupMode();
+    if (popup.classList.contains('active')) closePopup();
+    else if (groupMode) cancelGroupMode();
     else if (tagMode) cancelTagMode();
     else closeModal({target: modal});
   }
 });
-
-// Inline editing functionality
-const popup = document.getElementById('inlinePopup');
-let popupContext = null; // {source, clipName, type, tagIdx}
 
 // Check if API is available (skip for file:// to avoid CORS errors)
 async function checkApi() {
@@ -794,6 +780,11 @@ checkApi();
 function closePopup() {
   popup.classList.remove('active');
   popupContext = null;
+}
+
+function getContainerContext(el) {
+  const c = el.closest('.tags-year, .source-tags-year, .group-tags-year');
+  return { source: c.dataset.source, clipName: c.dataset.clip || null, groupId: c.dataset.groupId || null };
 }
 
 function positionPopup(element) {
@@ -894,13 +885,13 @@ async function saveEdits(source, clipName, newMeta, groupId = null) {
 }
 
 function getCurrentMeta(source, clipName, groupId = null) {
-  const edits = userEdits[source] || { video: { tags: [], year: null, description: null }, groups: [], clips: {} };
   if (groupId) {
-    const group = (edits.groups || []).find(g => g.id === groupId);
+    const group = findGroup(source, groupId);
     return group ? { tags: group.tags || [], year: group.year, description: group.description } : { tags: [], year: null };
   }
+  const edits = userEdits[source] || {};
   if (clipName) {
-    return edits.clips[clipName] || { tags: [], year: null };
+    return edits.clips?.[clipName] || { tags: [], year: null };
   }
   return edits.video || { tags: [], year: null, description: null };
 }
@@ -989,7 +980,7 @@ document.addEventListener('click', async (e) => {
     if (groupMode) {
       cancelGroupMode();
     } else {
-      startEditRangeMode(source, groupId);
+      startGroupMode(source, groupId);
     }
     return;
   }
@@ -1083,16 +1074,11 @@ document.addEventListener('click', async (e) => {
 
   // Handle add buttons
   if (addBtn) {
-    const container = addBtn.closest('.tags-year, .source-tags-year, .group-tags-year');
-    const source = container.dataset.source;
-    const clipName = container.dataset.clip || null;
-    const groupId = container.dataset.groupId || null;
-    const action = addBtn.dataset.action;
-
+    const { source, clipName, groupId } = getContainerContext(addBtn);
     closePopup();
-    if (action === 'add-tag') {
+    if (addBtn.dataset.action === 'add-tag') {
       showTagPopup(addBtn, source, clipName, groupId);
-    } else if (action === 'add-year') {
+    } else {
       showYearPopup(addBtn, source, clipName, groupId);
     }
     return;
@@ -1100,10 +1086,7 @@ document.addEventListener('click', async (e) => {
 
   // Handle tag click
   if (tag && tag.dataset.inherited !== 'true') {
-    const container = tag.closest('.tags-year, .source-tags-year, .group-tags-year');
-    const source = container.dataset.source;
-    const clipName = container.dataset.clip || null;
-    const groupId = container.dataset.groupId || null;
+    const { source, clipName, groupId } = getContainerContext(tag);
     closePopup();
     showTagPopup(tag, source, clipName, groupId, { idx: parseInt(tag.dataset.idx), name: tag.dataset.name, conf: tag.dataset.conf });
     return;
@@ -1111,10 +1094,7 @@ document.addEventListener('click', async (e) => {
 
   // Handle year badge click
   if (yearBadge && yearBadge.dataset.inherited !== 'true') {
-    const container = yearBadge.closest('.tags-year, .source-tags-year, .group-tags-year');
-    const source = container.dataset.source;
-    const clipName = container.dataset.clip || null;
-    const groupId = container.dataset.groupId || null;
+    const { source, clipName, groupId } = getContainerContext(yearBadge);
     closePopup();
     showYearPopup(yearBadge, source, clipName, groupId, { year: yearBadge.dataset.year, conf: yearBadge.dataset.conf });
     return;
@@ -1128,35 +1108,21 @@ async function handlePopupSave() {
   const meta = getCurrentMeta(source, clipName, groupId);
   const activeConf = popup.querySelector('.conf-btn.active')?.dataset.conf || 'high';
 
-  if (type === 'edit-tag') {
-    const nameInput = popup.querySelector('.tag-name-input');
-    const newName = nameInput?.value.trim();
-    if (newName && meta.tags[tagIdx]) {
+  if (type.endsWith('-tag')) {
+    const newName = popup.querySelector('.tag-name-input')?.value.trim();
+    if (!newName) return;
+    if (type === 'edit-tag' && meta.tags[tagIdx]) {
       meta.tags[tagIdx] = { name: newName, confidence: activeConf };
-      await saveEdits(source, clipName, meta, groupId);
-    }
-  } else if (type === 'edit-year') {
-    const yearInput = popup.querySelector('.year-input');
-    const newYear = parseInt(yearInput?.value);
-    if (newYear) {
-      meta.year = { year: newYear, confidence: activeConf };
-      await saveEdits(source, clipName, meta, groupId);
-    }
-  } else if (type === 'add-tag') {
-    const nameInput = popup.querySelector('.tag-name-input');
-    const newName = nameInput?.value.trim();
-    if (newName) {
+    } else if (type === 'add-tag') {
       meta.tags = meta.tags || [];
       meta.tags.push({ name: newName, confidence: activeConf });
-      await saveEdits(source, clipName, meta, groupId);
     }
-  } else if (type === 'add-year') {
-    const yearInput = popup.querySelector('.year-input');
-    const newYear = parseInt(yearInput?.value);
-    if (newYear) {
-      meta.year = { year: newYear, confidence: activeConf };
-      await saveEdits(source, clipName, meta, groupId);
-    }
+    await saveEdits(source, clipName, meta, groupId);
+  } else if (type.endsWith('-year')) {
+    const newYear = parseInt(popup.querySelector('.year-input')?.value);
+    if (!newYear) return;
+    meta.year = { year: newYear, confidence: activeConf };
+    await saveEdits(source, clipName, meta, groupId);
   }
 }
 
@@ -1164,15 +1130,6 @@ async function handlePopupSave() {
 popup.addEventListener('keydown', async (e) => {
   if (e.key === 'Enter') {
     await handlePopupSave();
-    closePopup();
-  } else if (e.key === 'Escape') {
-    closePopup();
-  }
-});
-
-// Also close popup on Escape globally
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && popup.classList.contains('active')) {
     closePopup();
   }
 });
@@ -1396,15 +1353,7 @@ function updateNavCounts() {
     // Calculate visible duration
     let visibleSecs = 0;
     visibleCards.forEach(card => {
-      const durationEl = card.querySelector('.video-duration');
-      if (durationEl) {
-        const parts = durationEl.textContent.split(':');
-        if (parts.length === 2) {
-          visibleSecs += parseInt(parts[0]) * 60 + parseInt(parts[1]);
-        } else if (parts.length === 3) {
-          visibleSecs += parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-        }
-      }
+      visibleSecs += parseInt(card.querySelector('.video-duration')?.dataset.secs) || 0;
     });
     item.querySelector('.nav-duration').textContent = formatDuration(visibleSecs);
 
