@@ -3,17 +3,19 @@ set -e
 cd "$(dirname "$0")/.."
 
 output="output"
+output_provided=false
 cache="cache"
-mount=""
+mounts=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -m|--mount)
-            mount="$2"
+            mounts+=("$2")
             shift 2
             ;;
         --output-dir)
             output="$2"
+            output_provided=true
             shift 2
             ;;
         --cache-dir)
@@ -36,16 +38,26 @@ done
 mkdir -p "$output" "$cache"
 
 docker_args=(--rm)
+docker_args+=(--user "$(id -u):$(id -g)")
 docker_args+=(-v "$output:$output")
 docker_args+=(-v "$cache:/root/.cache/huggingface")
 
-cmd_args=(--output-dir "$output")
-
-if [ -n "$mount" ]; then
-    host_mount="$mount"
-    [[ "$host_mount" = /* ]] || host_mount="$(pwd)/$host_mount"
-    docker_args+=(-v "$host_mount:$mount")
+cmd_args=()
+if [ "$output_provided" = true ]; then
+    cmd_args+=(--output-dir "$output")
 fi
+
+for m in "${mounts[@]}"; do
+    if [[ "$m" == *:* ]]; then
+        host_mount="${m%%:*}"
+        container_mount="${m#*:}"
+    else
+        host_mount="$m"
+        container_mount="$m"
+    fi
+    [[ "$host_mount" = /* ]] || host_mount="$(pwd)/$host_mount"
+    docker_args+=(-v "$host_mount:$container_mount")
+done
 
 cmd_args+=("$@")
 
