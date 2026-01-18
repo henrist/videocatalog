@@ -43,13 +43,11 @@ open http://localhost:8000
 
 ## Docker
 
-Alternatively, use Docker via Makefile:
-
 ```bash
-make build
-make run INPUT=video.avi
-make run ARGS='--gallery-only'
-make serve
+./scripts/docker-build.sh
+./scripts/docker-run.sh --mount /path/to/videos -- /path/to/videos/video.avi
+./scripts/docker-run.sh -- --gallery-only
+./scripts/docker-serve.sh
 ```
 
 ## Testing
