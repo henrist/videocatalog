@@ -14,6 +14,7 @@ def preprocess_dv_file(input_path: Path, output_path: Path, threads: int = 0) ->
     Args:
         threads: Number of encoding threads (0 = auto/all cores)
     """
+    temp_path = output_path.with_suffix(".tmp.mp4")
     cmd = [
         "ffmpeg", "-y",
         "-i", str(input_path),
@@ -24,6 +25,7 @@ def preprocess_dv_file(input_path: Path, output_path: Path, threads: int = 0) ->
         "-threads", str(threads),
         "-c:a", "aac",
         "-b:a", "192k",
-        str(output_path)
+        str(temp_path)
     ]
     run_ffmpeg(cmd, check=True)
+    temp_path.rename(output_path)
