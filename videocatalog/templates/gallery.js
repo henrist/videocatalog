@@ -511,13 +511,28 @@ async function saveEditsRaw(source, edits) {
   }
 }
 
-// Render all tags/year
-document.querySelectorAll('.source-tags-year').forEach(renderSourceTagsYear);
-document.querySelectorAll('.video-card .tags-year').forEach(renderTagsYear);
-document.querySelectorAll('.source-description').forEach(renderDescription);
+// Lazy render source content (tags, groups, descriptions) when visible
+const renderedSources = new Set();
+const sourceObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const sourceGroup = entry.target;
+      const source = sourceGroup.dataset.source;
+      if (!renderedSources.has(source)) {
+        renderedSources.add(source);
+        // Render source header tags/year and description
+        const sourceTagsEl = sourceGroup.querySelector('.source-tags-year');
+        if (sourceTagsEl) renderSourceTagsYear(sourceTagsEl);
+        const sourceDescEl = sourceGroup.querySelector('.source-description');
+        if (sourceDescEl) renderDescription(sourceDescEl);
+        // Render groups and clip tags (renderGroupsForSource handles clip tags)
+        renderGroupsForSource(source);
+      }
+    }
+  });
+}, { rootMargin: '100% 0px' }); // Preload sources 1 viewport ahead
 
-// Render all groups
-groups.forEach(g => renderGroupsForSource(g.dataset.source));
+groups.forEach(g => sourceObserver.observe(g));
 
 // Build search data including tags
 const cardData = Array.from(cards).map((card, i) => {
