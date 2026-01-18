@@ -181,7 +181,7 @@ h1 { margin-bottom: 20px; }
 .source-group.collapsed .clip-group { display: none; }
 /* Clip groups */
 .clip-group {
-  margin: 0 0 12px;
+  margin: 12px 0;
   border: 2px solid #444;
   border-radius: 8px;
   padding: 8px;
