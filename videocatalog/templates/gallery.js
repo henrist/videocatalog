@@ -201,36 +201,24 @@ let groupMode = null; // null | {source, startClip, startCard, mode, groupId}
 let tagMode = null; // null | {name, confidence, action: 'add'|'remove'}
 
 const tagModeToolbar = document.getElementById('tagModeToolbar');
-const tagModeInput = document.getElementById('tagModeInput');
-const tagModeStartBtn = document.getElementById('tagModeStart');
-const tagModeToggleBtn = document.getElementById('tagModeToggle');
+const tagModeName = document.getElementById('tagModeName');
+const tagModeDoneBtn = document.getElementById('tagModeDone');
 
-function getTagModeConf() {
-  return tagModeToolbar.querySelector('.tag-mode-conf .conf-btn.active')?.dataset.conf || 'high';
-}
-
-function getTagModeAction() {
-  return tagModeToolbar.querySelector('.tag-mode-action .action-btn.active')?.dataset.action || 'add';
-}
-
-function startTagMode() {
-  const name = tagModeInput.value.trim();
-  if (!name) {
-    tagModeInput.focus();
-    return;
-  }
-  tagMode = { name, confidence: getTagModeConf(), action: getTagModeAction() };
-  document.body.classList.add('tag-mode', `tag-action-${tagMode.action}`);
-  tagModeStartBtn.textContent = 'Done';
-  tagModeInput.disabled = true;
+function startTagModeFromTag(name, confidence) {
+  tagMode = { name, confidence, action: 'add' };
+  tagModeName.textContent = name;
+  // Reset action buttons to 'add'
+  tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.action === 'add');
+  });
+  tagModeToolbar.classList.remove('collapsed');
+  document.body.classList.add('tag-mode', 'tag-action-add');
+  closePopup();
 }
 
 function cancelTagMode() {
   document.body.classList.remove('tag-mode', 'tag-action-add', 'tag-action-remove');
-  tagModeStartBtn.textContent = 'Start';
-  tagModeInput.disabled = false;
   tagModeToolbar.classList.add('collapsed');
-  tagModeToggleBtn.classList.remove('active');
   tagMode = null;
 }
 
@@ -255,45 +243,18 @@ async function handleTagModeClick(card) {
 }
 
 // Tag mode toolbar events
-tagModeToggleBtn.addEventListener('click', () => {
-  if (tagMode) {
-    cancelTagMode();
-  } else {
-    tagModeToolbar.classList.toggle('collapsed');
-    tagModeToggleBtn.classList.toggle('active');
-    if (!tagModeToolbar.classList.contains('collapsed')) {
-      tagModeInput.focus();
-    }
-  }
-});
-
-tagModeStartBtn.addEventListener('click', () => {
-  if (tagMode) cancelTagMode();
-  else startTagMode();
-});
-
-tagModeToolbar.querySelectorAll('.tag-mode-conf .conf-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    tagModeToolbar.querySelectorAll('.tag-mode-conf .conf-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
+tagModeDoneBtn.addEventListener('click', cancelTagMode);
 
 tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    // Update body class if in tag mode
     if (tagMode) {
       document.body.classList.remove('tag-action-add', 'tag-action-remove');
       tagMode.action = btn.dataset.action;
       document.body.classList.add(`tag-action-${tagMode.action}`);
     }
   });
-});
-
-tagModeInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !tagMode) startTagMode();
 });
 
 function startGroupMode(source) {
@@ -887,7 +848,7 @@ function confButtons(current) {
 }
 
 function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf, groupId = null) {
-  popupContext = { source, clipName, groupId, type: 'edit-tag', tagIdx };
+  popupContext = { source, clipName, groupId, type: 'edit-tag', tagIdx, tagName, tagConf };
   popup.innerHTML = `
     <div class="popup-row">
       <input type="text" class="tag-name-input" value="${tagName}">
@@ -895,6 +856,7 @@ function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf, group
     <div class="popup-row">
       ${confButtons(tagConf)}
       <button class="delete-btn">Delete</button>
+      <button class="batch-btn">Batch</button>
     </div>
   `;
   positionPopup(element);
@@ -926,6 +888,7 @@ function showAddTagPopup(element, source, clipName, groupId = null) {
     </div>
     <div class="popup-row">
       ${confButtons('high')}
+      <button class="batch-btn">Batch</button>
     </div>
   `;
   positionPopup(element);
@@ -1149,6 +1112,27 @@ document.addEventListener('click', async (e) => {
 
     await saveEdits(source, clipName, meta, groupId);
     closePopup();
+    return;
+  }
+
+  // Handle batch button in popup
+  const batchBtn = e.target.closest('.batch-btn');
+  if (batchBtn && popupContext) {
+    if (popupContext.type === 'edit-tag') {
+      startTagModeFromTag(popupContext.tagName, popupContext.tagConf);
+    } else if (popupContext.type === 'add-tag') {
+      const nameInput = popup.querySelector('.tag-name-input');
+      const tagName = nameInput?.value.trim();
+      if (!tagName) { nameInput?.focus(); return; }
+      const tagConf = popup.querySelector('.conf-btn.active')?.dataset.conf || 'high';
+      // Save tag to current clip first
+      const { source, clipName, groupId } = popupContext;
+      const meta = getCurrentMeta(source, clipName, groupId);
+      meta.tags = meta.tags || [];
+      meta.tags.push({ name: tagName, confidence: tagConf });
+      saveEdits(source, clipName, meta, groupId);
+      startTagModeFromTag(tagName, tagConf);
+    }
     return;
   }
 

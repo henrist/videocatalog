@@ -241,35 +241,24 @@ body.group-mode .video-card:hover { outline: 2px dashed #88f; }
 .video-card.group-start { outline: 2px solid #8f8 !important; }
 .video-card.group-pending { outline: 2px dashed #ff8 !important; }
 /* Tag paint mode */
-.tag-mode-toggle { display: none; }
-body.api-available .tag-mode-toggle { display: inline-block; }
-.tag-mode-toggle.active { background: #446; border-color: #668; }
 .tag-mode-toolbar {
   display: none;
   gap: 8px;
   align-items: center;
   margin-bottom: 16px;
   padding: 10px 12px;
-  background: #2a2a2a;
-  border: 1px solid #444;
+  background: #252540;
+  border: 1px solid #668;
   border-radius: 6px;
 }
 body.api-available .tag-mode-toolbar:not(.collapsed) { display: flex; }
-.tag-mode-input {
-  width: 140px;
-  padding: 8px 10px;
-  font-size: 13px;
-  border: 1px solid #444;
-  border-radius: 4px;
-  background: #1a1a1a;
-  color: #fff;
-}
-.tag-mode-input:focus { outline: none; border-color: #666; }
-.tag-mode-conf, .tag-mode-action {
+.tag-mode-label { color: #aaf; font-size: 13px; }
+.tag-mode-label span { color: #fff; font-weight: 500; }
+.tag-mode-action {
   display: flex;
   gap: 2px;
 }
-.tag-mode-conf .conf-btn, .tag-mode-action .action-btn {
+.tag-mode-action .action-btn {
   padding: 6px 10px;
   font-size: 12px;
   border: 1px solid #444;
@@ -277,15 +266,12 @@ body.api-available .tag-mode-toolbar:not(.collapsed) { display: flex; }
   color: #888;
   cursor: pointer;
 }
-.tag-mode-conf .conf-btn:first-child, .tag-mode-action .action-btn:first-child { border-radius: 4px 0 0 4px; }
-.tag-mode-conf .conf-btn:last-child, .tag-mode-action .action-btn:last-child { border-radius: 0 4px 4px 0; }
-.tag-mode-conf .conf-btn:hover, .tag-mode-action .action-btn:hover { background: #444; color: #aaa; }
-.tag-mode-conf .conf-btn.active { background: #446; border-color: #668; color: #fff; }
+.tag-mode-action .action-btn:first-child { border-radius: 4px 0 0 4px; }
+.tag-mode-action .action-btn:last-child { border-radius: 0 4px 4px 0; }
+.tag-mode-action .action-btn:hover { background: #444; color: #aaa; }
 .tag-mode-action .action-btn.active[data-action="add"] { background: #363; border-color: #484; color: #8f8; }
 .tag-mode-action .action-btn.active[data-action="remove"] { background: #633; border-color: #844; color: #f88; }
-.tag-mode-start { margin-left: auto; }
-body.tag-mode .tag-mode-toolbar { border-color: #668; background: #252540; }
-body.tag-mode .tag-mode-start { background: #446; border-color: #668; }
+.tag-mode-done { margin-left: auto; }
 body.tag-mode.tag-action-add .video-card { cursor: pointer; }
 body.tag-mode.tag-action-add .video-card:hover { outline: 2px solid #8f8; }
 body.tag-mode.tag-action-remove .video-card { cursor: pointer; }
@@ -486,16 +472,17 @@ body.api-available .clip-group-header:hover .add-desc-btn { display: inline; }
 }
 .inline-popup .conf-btn:hover { background: #555; }
 .inline-popup .conf-btn.active { background: #666; border-color: #888; color: #fff; }
-.inline-popup .delete-btn {
+.inline-popup .delete-btn, .inline-popup .batch-btn {
   padding: 4px 8px;
   font-size: 11px;
   border: none;
   border-radius: 4px;
-  background: #633;
-  color: #faa;
   cursor: pointer;
 }
+.inline-popup .delete-btn { background: #633; color: #faa; }
 .inline-popup .delete-btn:hover { background: #844; }
+.inline-popup .batch-btn { background: #446; color: #aaf; }
+.inline-popup .batch-btn:hover { background: #558; }
 .modal {
   display: none;
   position: fixed;
