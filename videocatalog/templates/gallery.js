@@ -703,7 +703,19 @@ function toggleTranscript(el) {
 }
 
 function toggleGroup(header) {
-  header.parentElement.classList.toggle('collapsed');
+  const container = header.parentElement;
+  const isCollapsing = !container.classList.contains('collapsed');
+
+  container.classList.toggle('collapsed');
+
+  if (isCollapsing) {
+    const headerTop = header.getBoundingClientRect().top;
+    const stickyOffset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-header-height')) || 60;
+    if (headerTop < stickyOffset) {
+      header.scrollIntoView({ block: 'start' });
+      window.scrollBy(0, -stickyOffset);
+    }
+  }
 }
 
 function highlightMatches(text, matches) {
@@ -1012,7 +1024,19 @@ document.addEventListener('click', async (e) => {
   // Handle group header click for expand/collapse
   const groupHeader = e.target.closest('.clip-group-header');
   if (groupHeader && !e.target.closest('.tag, .year-badge, .add-btn, .add-desc-btn, .group-actions')) {
-    groupHeader.closest('.clip-group').classList.toggle('collapsed');
+    const container = groupHeader.closest('.clip-group');
+    const isCollapsing = !container.classList.contains('collapsed');
+
+    container.classList.toggle('collapsed');
+
+    if (isCollapsing) {
+      const headerTop = groupHeader.getBoundingClientRect().top;
+      const stickyOffset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-header-plus-source')) || 108;
+      if (headerTop < stickyOffset) {
+        groupHeader.scrollIntoView({ block: 'start' });
+        window.scrollBy(0, -stickyOffset);
+      }
+    }
     return;
   }
 
