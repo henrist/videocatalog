@@ -1,6 +1,7 @@
 """Video processing orchestration: process_clips and convert_to_mp4."""
 
 import multiprocessing
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -16,8 +17,12 @@ from .utils import (
 )
 
 
-def convert_to_mp4(video_path: Path) -> Path:
-    """Convert video to MP4 if not already."""
+def convert_to_mp4(video_path: Path, threads: int = 0) -> Path:
+    """Convert video to MP4 if not already.
+
+    Args:
+        threads: Number of encoding threads (0 = auto/all cores)
+    """
     if video_path.suffix.lower() == '.mp4':
         return video_path
 
@@ -33,6 +38,7 @@ def convert_to_mp4(video_path: Path) -> Path:
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "22",
+        "-threads", str(threads),
         "-c:a", "aac",
         "-b:a", "128k",
         str(mp4_path)
@@ -61,9 +67,13 @@ def process_clips(
     non_mp4 = [(i, v) for i, v in enumerate(video_files) if v.suffix.lower() != '.mp4']
     mp4_results = {}  # index -> mp4_path
     if non_mp4:
-        print(f"  Converting {len(non_mp4)} non-MP4 files...")
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(convert_to_mp4, v): i for i, v in non_mp4}
+        # Limit parallelism: fewer workers than files = more threads per worker
+        cpu_count = os.cpu_count() or 4
+        convert_workers = min(workers, len(non_mp4))
+        threads = max(1, cpu_count // convert_workers)
+        print(f"  Converting {len(non_mp4)} non-MP4 files ({convert_workers} workers, {threads} threads each)...")
+        with ThreadPoolExecutor(max_workers=convert_workers) as executor:
+            futures = {executor.submit(convert_to_mp4, v, threads): i for i, v in non_mp4}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:

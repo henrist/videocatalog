@@ -5,11 +5,14 @@ from pathlib import Path
 from .utils import run_ffmpeg
 
 
-def preprocess_dv_file(input_path: Path, output_path: Path) -> None:
+def preprocess_dv_file(input_path: Path, output_path: Path, threads: int = 0) -> None:
     """Convert DV file to MP4 with deinterlacing.
 
     Designed for DV25 PAL source (~30 Mbps, 576i interlaced).
     Output: H.264 MP4, CRF 18, deinterlaced.
+
+    Args:
+        threads: Number of encoding threads (0 = auto/all cores)
     """
     cmd = [
         "ffmpeg", "-y",
@@ -18,6 +21,7 @@ def preprocess_dv_file(input_path: Path, output_path: Path) -> None:
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "18",
+        "-threads", str(threads),
         "-c:a", "aac",
         "-b:a", "192k",
         str(output_path)

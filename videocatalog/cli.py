@@ -2,6 +2,7 @@
 
 import argparse
 import multiprocessing
+import os
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -299,12 +300,16 @@ def cmd_preprocess(args):
         print("All files already converted")
         sys.exit(0)
 
-    workers = args.workers if args.workers > 0 else get_default_workers()
-    print(f"Converting {len(to_convert)} files ({workers} workers)...")
+    cpu_count = os.cpu_count() or 4
+    default_workers = max(1, cpu_count // 2)
+    workers = args.workers if args.workers > 0 else default_workers
+    workers = min(workers, len(to_convert))  # no more workers than files
+    threads = max(1, cpu_count // workers)
+    print(f"Converting {len(to_convert)} files ({workers} workers, {threads} threads each)...")
 
     def convert_one(item: tuple[Path, Path]) -> str:
         src, dst = item
-        preprocess_dv_file(src, dst)
+        preprocess_dv_file(src, dst, threads=threads)
         return src.name
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
