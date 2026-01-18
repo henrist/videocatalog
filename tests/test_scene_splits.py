@@ -2,7 +2,8 @@
 
 import pytest
 
-from videocatalog.processing import detect_cuts, get_video_duration
+from videocatalog.detection import detect_cuts
+from videocatalog.utils import get_video_duration
 
 from .conftest import TEST_LIMIT
 

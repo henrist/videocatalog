@@ -14,7 +14,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from videocatalog.processing import detect_cuts
+from videocatalog.detection import detect_cuts
 
 
 def get_next_golden_name(golden_dir: Path, video_stem: str) -> str:

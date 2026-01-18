@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 uv sync                                    # Install dependencies
-uv run videocatalog video.avi --output-dir out  # Process video
-uv run videocatalog --output-dir out --serve    # Start edit server
-uv run python -c "from videocatalog import cli, server, processing, gallery"  # Verify imports
+uv run videocatalog process video.avi      # Process video (outputs to ./output)
+uv run videocatalog serve                  # Start edit server
+uv run python -c "from videocatalog import cli, processing, detection, splitting, thumbnails, transcription, preprocess, utils"  # Verify imports
 ```
 
 **Docs:** CLI options documented in README.md - update when changing arguments.
@@ -17,10 +17,16 @@ uv run python -c "from videocatalog import cli, server, processing, gallery"  # 
 
 Video processing pipeline that splits recordings at detected boundaries and generates a searchable web gallery.
 
-**Core flow:** `cli.py` → `processing.py` → `gallery.py`
+**Core flow:** `cli.py` → `detection.py` → `splitting.py` → `transcription.py` → `gallery.py`
 
-- **cli.py**: Entry point, argument parsing, orchestrates processing modes
-- **processing.py**: FFmpeg operations (scene detection, black frames, audio analysis, splitting, transcription via faster-whisper)
+- **cli.py**: Subcommand parsing (process, serve, preprocess, transcribe, gallery)
+- **detection.py**: Scene/black/audio detection, verification, find_cuts, detect_cuts
+- **splitting.py**: Split video at detected cut boundaries
+- **thumbnails.py**: Thumbnail and sprite generation
+- **transcription.py**: Whisper transcription
+- **preprocess.py**: DV file preprocessing (deinterlace, convert to MP4)
+- **processing.py**: process_clips orchestration and convert_to_mp4
+- **utils.py**: Shared utilities (run_ffmpeg, get_video_duration, format_*)
 - **gallery.py**: Generates single-file HTML gallery with embedded JavaScript for search/filtering
 - **server.py**: FastAPI server for editing tags/year metadata, serves static video files
 - **models.py**: Pydantic models for all data structures (clips, metadata, user edits, cut candidates)

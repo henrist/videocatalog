@@ -15,43 +15,66 @@ Automatically detects recording boundaries, splits into clips, transcribes audio
 # Install dependencies
 uv sync
 
-# Preprocess DV files (deinterlace, convert to MP4)
-uv run videocatalog --preprocess /path/to/dv --target-dir /path/to/mp4
+# Show available commands or help
+uv run videocatalog -h
 
-# Process a video file
-uv run videocatalog video.avi --output-dir output
+# Process a video file (full pipeline, outputs to ./output)
+uv run videocatalog process video.avi
+
+# Preprocess DV files (deinterlace, convert to MP4)
+uv run videocatalog preprocess /path/to/dv --target-dir /path/to/mp4
+
+# Transcribe existing clips
+uv run videocatalog transcribe
+
+# Regenerate gallery only
+uv run videocatalog gallery
 
 # View gallery (read-only)
 open output/gallery.html
 
 # View and edit (start server, then open browser)
-uv run videocatalog --output-dir output --serve --regenerate
+uv run videocatalog serve --regenerate
 open http://localhost:8000
 ```
 
-### Options
+### Subcommands
 
-- `--min-confidence N` - Minimum score for cut detection (default: 45)
-- `--min-gap N` - Minimum seconds between cuts (default: 10)
+**`process INPUT`** - Full pipeline: detect → split → transcribe → gallery
+- `--output-dir` - Output directory (default: output)
+- `--name` - Override output subdirectory name
+- `--min-confidence N` - Minimum score for cut detection (default: 12)
+- `--min-gap N` - Minimum seconds between cuts (default: 1)
+- `--start N` / `--limit N` - Process subset of video
 - `--dry-run` - Show detected cuts without splitting
+- `--verbose` / `-v` - Show detailed detection info
+- `--force` - Reprocess even if already processed
 - `--skip-transcribe` - Skip whisper transcription
-- `--transcribe-only` - Only transcribe existing clips
-- `--gallery-only` - Reprocess clips and regenerate gallery
-- `--html-only` - Only regenerate gallery HTML (fast)
-- `--serve` - Start web server for editing tags/year
+- `--workers N` - Parallel workers for ffmpeg (default: auto)
+- `--transcribe-workers N` - Parallel Whisper instances (default: 1, ~3GB RAM each)
+
+**`serve`** - Start web server for viewing and editing
+- `--output-dir` - Output directory (default: output)
+- `--host` / `--port` - Server bind options (default: 127.0.0.1:8000)
 - `--regenerate` - Regenerate gallery HTML on each page load
-- `--host` / `--port` - Server bind options
-- `--workers N` - Parallel workers for ffmpeg operations (default: auto)
-- `--transcribe-workers N` - Parallel Whisper instances (default: 1, each uses ~3GB RAM)
-- `--preprocess` - Convert DV files to MP4 with deinterlacing (use with `--target-dir`)
-- `--target-dir PATH` - Target directory for preprocessed files
+
+**`preprocess INPUT --target-dir DIR`** - Convert DV files to MP4 with deinterlacing
+- `--workers N` - Parallel workers (default: auto)
+
+**`transcribe`** - Transcribe existing clips
+- `--output-dir` - Output directory (default: output)
+- `--workers N` - Parallel workers for ffmpeg (default: auto)
+- `--transcribe-workers N` - Parallel Whisper instances (default: 1)
+
+**`gallery`** - Regenerate gallery.html only
+- `--output-dir` - Output directory (default: output)
 
 ## Docker
 
 ```bash
 ./scripts/docker-build.sh
-./scripts/docker-run.sh --mount /path/to/videos -- /path/to/videos/video.avi
-./scripts/docker-run.sh -- --gallery-only
+./scripts/docker-run.sh --mount /path/to/videos -- process /path/to/videos/video.avi
+./scripts/docker-run.sh -- gallery
 ./scripts/docker-serve.sh
 ```
 

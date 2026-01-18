@@ -19,256 +19,126 @@ from .models import (
     CandidateInfo,
     SegmentInfo,
 )
-from .processing import (
-    detect_cuts,
-    get_video_duration,
-    format_time,
-    split_video,
-    convert_to_mp4,
-    transcribe_video,
-    extract_audio,
-    process_clips,
-    preprocess_dv_file,
-    _get_default_workers,
-    _transcribe_worker,
-    _transcribe_from_wav,
-)
+from .detection import detect_cuts
+from .splitting import split_video
+from .preprocess import preprocess_dv_file
+from .processing import convert_to_mp4, process_clips
+from .utils import get_video_duration, format_time, get_default_workers
+from .transcription import extract_audio, transcribe_from_wav, transcribe_worker
 from .gallery import generate_gallery
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Split video at recording boundaries using multi-signal detection"
+def find_video_subdirs(output_dir: Path) -> list[tuple[Path, list[Path]]]:
+    """Find subdirectories containing video files."""
+    if not output_dir.exists():
+        print(f"Error: Output directory not found: {output_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    subdirs = []
+    for subdir in sorted(output_dir.iterdir()):
+        if subdir.is_dir():
+            extensions = {'.avi', '.mp4', '.mov', '.mkv', '.webm', '.wmv', '.flv'}
+            videos = [f for f in subdir.iterdir()
+                      if f.is_file() and f.suffix.lower() in extensions]
+            if videos:
+                subdirs.append((subdir, videos))
+    return subdirs
+
+
+def run_detection_with_logging(
+    video_path: Path,
+    log_file,
+    start_time: float,
+    end_time: float,
+    min_confidence: int,
+    min_gap: float,
+    verbose: bool,
+):
+    """Run cut detection and write detailed logs. Returns (result, cuts, all_candidates)."""
+
+    def log(msg: str):
+        """Write to log file always, console only if verbose."""
+        log_file.write(msg + "\n")
+        if verbose:
+            print(msg)
+
+    def log_always(msg: str):
+        """Write to both log file and console."""
+        log_file.write(msg + "\n")
+        print(msg)
+
+    result = detect_cuts(
+        video_path,
+        start_time=start_time,
+        end_time=end_time,
+        min_confidence=min_confidence,
+        min_gap=min_gap,
+        verbose=verbose,
+        log_file=log_file,
     )
-    parser.add_argument("input", type=Path, nargs="?", help="Input video file or directory")
-    parser.add_argument("--output-dir", type=Path, help="Output directory (required except with --preprocess)")
-    parser.add_argument("--min-confidence", type=int, default=12,
-                        help="Minimum confidence score for cuts (default: 12)")
-    parser.add_argument("--min-gap", type=float, default=1.0,
-                        help="Minimum gap between cuts in seconds (default: 1)")
-    parser.add_argument("--start", type=float, default=0,
-                        help="Start processing at N seconds (default: 0)")
-    parser.add_argument("--limit", type=float, default=0,
-                        help="Limit processing to N seconds from start (0=full video)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show detected cuts without splitting")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Show detailed detection info for tuning parameters")
-    parser.add_argument("--gallery-only", action="store_true",
-                        help="Reprocess clips and regenerate gallery")
-    parser.add_argument("--html-only", action="store_true",
-                        help="Only regenerate gallery HTML (fast)")
-    parser.add_argument("--skip-transcribe", action="store_true",
-                        help="Skip transcription step")
-    parser.add_argument("--split-only", action="store_true",
-                        help="Skip transcription (still generates thumbnails and gallery)")
-    parser.add_argument("--transcribe-only", action="store_true",
-                        help="Only run transcription on existing videos in output-dir")
-    parser.add_argument("--name", type=str,
-                        help="Override output subdirectory name (for testing different configs)")
-    parser.add_argument("--force", action="store_true",
-                        help="Force reprocessing even if already processed")
-    parser.add_argument("--serve", action="store_true",
-                        help="Start web server for viewing and editing")
-    parser.add_argument("--regenerate", action="store_true",
-                        help="Regenerate gallery HTML on each page load")
-    parser.add_argument("--host", default="127.0.0.1",
-                        help="Host for web server (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000,
-                        help="Port for web server (default: 8000)")
-    parser.add_argument("--workers", type=int, default=0,
-                        help="Number of parallel workers for ffmpeg (default: auto)")
-    parser.add_argument("--transcribe-workers", type=int, default=1,
-                        help="Number of parallel Whisper workers (default: 1, each uses ~3GB RAM)")
-    parser.add_argument("--preprocess", action="store_true",
-                        help="Preprocess DV files: convert to MP4 with deinterlacing")
-    parser.add_argument("--target-dir", type=Path,
-                        help="Target directory for preprocessed files (required with --preprocess)")
+    cuts = result.cuts
+    all_candidates = result.all_candidates
 
-    args = parser.parse_args()
+    # Summary
+    noise_info = f", {len(result.noise_zones)} noise zones" if result.noise_zones else ""
+    log_always(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes{noise_info}")
+    log_always(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
 
-    def find_video_subdirs():
-        if not args.output_dir.exists():
-            print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
-            sys.exit(1)
+    # Raw detection data (verbose only)
+    log("")
+    log("=== RAW DETECTION DATA ===")
+    log("")
+    log("Scene changes (time, score) - threshold >=5:")
+    for time, score in sorted(result.scenes):
+        marker = " ***" if score >= 15 else " **" if score >= 10 else " *" if score >= 6 else ""
+        log(f"  {format_time(time)} score={score:5.1f}{marker}")
+    log("")
+    log("Black frames (end_time, duration) - all >=0.1s:")
+    for black_end, dur in sorted(result.blacks):
+        marker = " ***" if dur >= 1.0 else " **" if dur >= 0.5 else " *" if dur >= 0.2 else ""
+        log(f"  {format_time(black_end)} dur={dur:.2f}s{marker}")
+    log("")
+    log("Audio level jumps (time, step_dB) - threshold >10dB:")
+    for t in sorted(result.audio_changes.keys()):
+        step = result.audio_changes[t]
+        marker = " ***" if step >= 25 else " **" if step >= 18 else " *" if step >= 12 else ""
+        log(f"  {format_time(t)} step={step:5.1f}dB{marker}")
+    log("")
+    log("Legend: * = low score, ** = medium, *** = high")
+    if result.noise_zones:
+        log("")
+        log("Noise zones (suppressed interior detections):")
+        for zone in result.noise_zones:
+            log(f"  {format_time(zone.start)} - {format_time(zone.end)} ({zone.end - zone.start:.1f}s, {zone.detection_count} detections)")
 
-        subdirs = []
-        for subdir in sorted(args.output_dir.iterdir()):
-            if subdir.is_dir():
-                extensions = {'.avi', '.mp4', '.mov', '.mkv', '.webm', '.wmv', '.flv'}
-                videos = [f for f in subdir.iterdir()
-                          if f.is_file() and f.suffix.lower() in extensions]
-                if videos:
-                    subdirs.append((subdir, videos))
-        return subdirs
+    # All candidates (verbose only)
+    log("")
+    log("=== ALL CANDIDATES (chronological) ===")
+    log("Scoring: scene(0-40) + black(0-35) + audio(0-30) = max 105")
+    log("")
+    for c in sorted(all_candidates, key=lambda x: x.time):
+        selected = "SELECTED" if c in cuts else f"skip (below {min_confidence})" if c.confidence_score < min_confidence else "skip (too close)"
+        s, b, a = c.score_breakdown()
+        score_str = f"[{c.confidence_score:3d}={s:2d}+{b:2d}+{a:2d}]"
+        log(f"  {format_time(c.time)} {score_str} {c.signal_summary():40s} -> {selected}")
+    log("")
 
-    if args.preprocess:
-        if not args.target_dir:
-            print("Error: --target-dir required with --preprocess", file=sys.stderr)
-            sys.exit(1)
-        if not args.input:
-            print("Error: input source directory required with --preprocess", file=sys.stderr)
-            sys.exit(1)
-        if not args.input.is_dir():
-            print(f"Error: Input must be a directory: {args.input}", file=sys.stderr)
-            sys.exit(1)
+    # Final cuts (always)
+    if cuts:
+        log_always(f"\nFound {len(cuts)} cut(s):")
+        for cut in cuts:
+            log_always(f"  {format_time(cut.time)} [score:{cut.confidence_score:3d}] ({cut.signal_summary()})")
+        log_always("")
+        log_always(f"Will create {len(cuts) + 1} segment(s)")
+        log_always("")
+    else:
+        log_always("No cuts detected. Try lowering --min-confidence")
 
-        args.target_dir.mkdir(parents=True, exist_ok=True)
-        avi_files = sorted(f for f in args.input.iterdir() if f.is_file() and f.suffix.lower() == '.avi')
+    return result, cuts, all_candidates
 
-        if not avi_files:
-            print(f"No .avi files found in {args.input}")
-            sys.exit(0)
 
-        # Partition into skip/convert
-        to_convert = []
-        for avi in avi_files:
-            mp4_path = args.target_dir / f"{avi.stem}.mp4"
-            if mp4_path.exists():
-                print(f"Skip (exists): {avi.name}")
-            else:
-                to_convert.append((avi, mp4_path))
-
-        if not to_convert:
-            print("All files already converted")
-            sys.exit(0)
-
-        workers = args.workers if args.workers > 0 else _get_default_workers()
-        print(f"Converting {len(to_convert)} files ({workers} workers)...")
-
-        def convert_one(item: tuple[Path, Path]) -> str:
-            src, dst = item
-            preprocess_dv_file(src, dst)
-            return src.name
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(convert_one, item): item for item in to_convert}
-            for i, future in enumerate(as_completed(futures), 1):
-                src, _ = futures[future]
-                try:
-                    future.result()
-                    print(f"  [{i}/{len(to_convert)}] {src.name}")
-                except Exception as e:
-                    print(f"  [{i}/{len(to_convert)}] {src.name} FAILED: {e}")
-
-        print("Done!")
-        return
-
-    # All other modes require --output-dir
-    if not args.output_dir:
-        print("Error: --output-dir is required", file=sys.stderr)
-        sys.exit(1)
-
-    if args.serve:
-        from .server import run_server
-        if not args.output_dir.exists():
-            print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
-            sys.exit(1)
-        run_server(args.output_dir, host=args.host, port=args.port, regenerate=args.regenerate)
-        return
-
-    if args.transcribe_only:
-        subdirs = find_video_subdirs()
-        if not subdirs:
-            print("No video subdirectories found")
-            sys.exit(1)
-
-        ffmpeg_workers = args.workers if args.workers > 0 else _get_default_workers()
-        transcribe_workers = args.transcribe_workers
-        total = sum(len(videos) for _, videos in subdirs)
-        print(f"Transcribing {total} videos in {len(subdirs)} subdirectories")
-        print(f"  ffmpeg workers={ffmpeg_workers}, transcribe workers={transcribe_workers}")
-
-        for subdir, videos in subdirs:
-            print(f"\n{subdir.name}:")
-            mp4_files = [convert_to_mp4(v) for v in sorted(videos)]
-
-            # Filter to only files needing transcription
-            to_transcribe = [f for f in mp4_files if not f.with_suffix('.txt').exists()]
-            if not to_transcribe:
-                print("  All files already transcribed")
-            else:
-                # Phase 1: Extract audio in parallel
-                print(f"  Extracting audio for {len(to_transcribe)} files...")
-                wav_map = {}
-                with ThreadPoolExecutor(max_workers=ffmpeg_workers) as executor:
-                    futures = {executor.submit(extract_audio, f): f for f in to_transcribe}
-                    for future in as_completed(futures):
-                        mp4 = futures[future]
-                        try:
-                            wav_map[mp4] = future.result()
-                        except Exception as e:
-                            print(f"    Error extracting audio for {mp4.name}: {e}")
-
-                # Phase 2: Transcribe (parallel if workers > 1)
-                print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
-                try:
-                    if transcribe_workers == 1:
-                        for i, (mp4, wav) in enumerate(wav_map.items(), 1):
-                            print(f"    [{i}/{len(wav_map)}] {mp4.name}")
-                            _transcribe_from_wav(mp4, wav)
-                    else:
-                        work_items = [(str(mp4), str(wav)) for mp4, wav in wav_map.items()]
-                        ctx = multiprocessing.get_context('spawn')
-                        pool = ctx.Pool(processes=transcribe_workers)
-                        try:
-                            for i, (video_path_str, _) in enumerate(pool.imap_unordered(_transcribe_worker, work_items), 1):
-                                print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
-                        finally:
-                            pool.close()
-                            pool.join()
-                except Exception:
-                    for wav in wav_map.values():
-                        wav.unlink(missing_ok=True)
-                    raise
-
-            metadata_path = subdir / "metadata.json"
-            if metadata_path.exists():
-                metadata = VideoMetadata.load(metadata_path)
-                for clip in metadata.clips:
-                    txt_path = subdir / Path(clip.file).with_suffix('.txt').name
-                    if txt_path.exists():
-                        clip.transcript = txt_path.read_text()
-                metadata.save(metadata_path)
-
-        print("\nDone!")
-        return
-
-    if args.html_only:
-        if not args.output_dir.exists():
-            print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
-            sys.exit(1)
-        generate_gallery(args.output_dir)
-        print("Done!")
-        return
-
-    if args.gallery_only:
-        subdirs = find_video_subdirs()
-        if not subdirs:
-            print("No video subdirectories found")
-            sys.exit(1)
-
-        print(f"Processing {len(subdirs)} video subdirectories...")
-        for subdir, videos in subdirs:
-            metadata_path = subdir / "metadata.json"
-
-            print(f"\n{subdir.name}:")
-            clips = process_clips(subdir, sorted(videos), transcribe=not args.skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
-            metadata = VideoMetadata(
-                source_file=subdir.name,
-                processed_date=datetime.now().isoformat(),
-                clips=clips
-            )
-            metadata.save(metadata_path)
-
-        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
-        print("\nDone!")
-        return
-
-    if not args.input:
-        print("Error: input file required (unless using --gallery-only)", file=sys.stderr)
-        sys.exit(1)
-
+def cmd_process(args):
+    """Full pipeline: detect → split → transcribe → gallery."""
     if not args.input.exists():
         print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         sys.exit(1)
@@ -312,7 +182,7 @@ def main():
 
     print("Running detection...")
 
-    # Create log file for detection output (always verbose)
+    # Create log file for detection output
     video_subdir.mkdir(parents=True, exist_ok=True)
     log_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = video_subdir / f"detection_log_{log_timestamp}.txt"
@@ -326,83 +196,14 @@ def main():
             log_file.write(f" (analyzing {format_time(start_time)} - {format_time(end_time)})")
         log_file.write(f"\nmin_confidence={args.min_confidence}, min_gap={args.min_gap}\n\n")
 
-        result = detect_cuts(
-            args.input,
-            start_time=start_time,
-            end_time=end_time,
-            min_confidence=args.min_confidence,
-            min_gap=args.min_gap,
-            verbose=args.verbose,
-            log_file=log_file,
+        result, cuts, all_candidates = run_detection_with_logging(
+            args.input, log_file, start_time, end_time,
+            args.min_confidence, args.min_gap, args.verbose
         )
-        cuts = result.cuts
-        all_candidates = result.all_candidates
-        duration = end_time  # Use analyzed segment end, not full video duration
-
-        # Helper: write to log file always, console only if verbose
-        def log(msg: str):
-            log_file.write(msg + "\n")
-            if args.verbose:
-                print(msg)
-
-        # Helper: write to both log file and console always
-        def log_always(msg: str):
-            log_file.write(msg + "\n")
-            print(msg)
-
-        noise_info = f", {len(result.noise_zones)} noise zones" if result.noise_zones else ""
-        log_always(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes{noise_info}")
-        log_always(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
-
-        log("")
-        log("=== RAW DETECTION DATA ===")
-        log("")
-        log("Scene changes (time, score) - threshold >=5:")
-        for time, score in sorted(result.scenes):
-            marker = " ***" if score >= 15 else " **" if score >= 10 else " *" if score >= 6 else ""
-            log(f"  {format_time(time)} score={score:5.1f}{marker}")
-        log("")
-        log("Black frames (end_time, duration) - all >=0.1s:")
-        for black_end, dur in sorted(result.blacks):
-            marker = " ***" if dur >= 1.0 else " **" if dur >= 0.5 else " *" if dur >= 0.2 else ""
-            log(f"  {format_time(black_end)} dur={dur:.2f}s{marker}")
-        log("")
-        log("Audio level jumps (time, step_dB) - threshold >10dB:")
-        for t in sorted(result.audio_changes.keys()):
-            step = result.audio_changes[t]
-            marker = " ***" if step >= 25 else " **" if step >= 18 else " *" if step >= 12 else ""
-            log(f"  {format_time(t)} step={step:5.1f}dB{marker}")
-        log("")
-        log("Legend: * = low score, ** = medium, *** = high")
-        if result.noise_zones:
-            log("")
-            log("Noise zones (suppressed interior detections):")
-            for zone in result.noise_zones:
-                log(f"  {format_time(zone.start)} - {format_time(zone.end)} ({zone.end - zone.start:.1f}s, {zone.detection_count} detections)")
-
-        log("")
-        log("=== ALL CANDIDATES (chronological) ===")
-        log("Scoring: scene(0-40) + black(0-35) + audio(0-30) = max 105")
-        log("")
-        for c in sorted(all_candidates, key=lambda x: x.time):
-            selected = "SELECTED" if c in cuts else f"skip (below {args.min_confidence})" if c.confidence_score < args.min_confidence else "skip (too close)"
-            s, b, a = c.score_breakdown()
-            score_str = f"[{c.confidence_score:3d}={s:2d}+{b:2d}+{a:2d}]"
-            log(f"  {format_time(c.time)} {score_str} {c.signal_summary():40s} -> {selected}")
-        log("")
+        duration = end_time
 
         if not cuts:
-            log_always("No cuts detected. Try lowering --min-confidence")
             sys.exit(0)
-
-        log_always(f"\nFound {len(cuts)} cut(s):")
-        for cut in cuts:
-            log_always(f"  {format_time(cut.time)} [score:{cut.confidence_score:3d}] ({cut.signal_summary()})")
-        log_always("")
-
-        num_segments = len(cuts) + 1
-        log_always(f"Will create {num_segments} segment(s)")
-        log_always("")
 
         if args.dry_run:
             print("[Dry run - no files created]")
@@ -448,8 +249,7 @@ def main():
         )
         splits_file.save(video_subdir / "splits.json")
 
-        skip_transcribe = args.skip_transcribe or args.split_only
-        clips = process_clips(video_subdir, output_files, transcribe=not skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
+        clips = process_clips(video_subdir, output_files, transcribe=not args.skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
         metadata = VideoMetadata(
             source_file=args.input.name,
             processed_date=datetime.now().isoformat(),
@@ -457,11 +257,214 @@ def main():
         )
         metadata.save(metadata_path)
 
-        generate_gallery(args.output_dir, transcribe=not skip_transcribe)
+        generate_gallery(args.output_dir, transcribe=not args.skip_transcribe)
         print()
         print("Done!")
     finally:
         log_file.close()
+
+
+def cmd_serve(args):
+    """Start web server for viewing and editing."""
+    from .server import run_server
+    if not args.output_dir.exists():
+        print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
+        sys.exit(1)
+    run_server(args.output_dir, host=args.host, port=args.port, regenerate=args.regenerate)
+
+
+def cmd_preprocess(args):
+    """Convert DV files to MP4 with deinterlacing."""
+    if not args.input.is_dir():
+        print(f"Error: Input must be a directory: {args.input}", file=sys.stderr)
+        sys.exit(1)
+
+    args.target_dir.mkdir(parents=True, exist_ok=True)
+    avi_files = sorted(f for f in args.input.iterdir() if f.is_file() and f.suffix.lower() == '.avi')
+
+    if not avi_files:
+        print(f"No .avi files found in {args.input}")
+        sys.exit(0)
+
+    # Partition into skip/convert
+    to_convert = []
+    for avi in avi_files:
+        mp4_path = args.target_dir / f"{avi.stem}.mp4"
+        if mp4_path.exists():
+            print(f"Skip (exists): {avi.name}")
+        else:
+            to_convert.append((avi, mp4_path))
+
+    if not to_convert:
+        print("All files already converted")
+        sys.exit(0)
+
+    workers = args.workers if args.workers > 0 else get_default_workers()
+    print(f"Converting {len(to_convert)} files ({workers} workers)...")
+
+    def convert_one(item: tuple[Path, Path]) -> str:
+        src, dst = item
+        preprocess_dv_file(src, dst)
+        return src.name
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(convert_one, item): item for item in to_convert}
+        for i, future in enumerate(as_completed(futures), 1):
+            src, _ = futures[future]
+            try:
+                future.result()
+                print(f"  [{i}/{len(to_convert)}] {src.name}")
+            except Exception as e:
+                print(f"  [{i}/{len(to_convert)}] {src.name} FAILED: {e}")
+
+    print("Done!")
+
+
+def cmd_transcribe(args):
+    """Transcribe existing clips in output directory."""
+    subdirs = find_video_subdirs(args.output_dir)
+    if not subdirs:
+        print("No video subdirectories found")
+        sys.exit(1)
+
+    ffmpeg_workers = args.workers if args.workers > 0 else get_default_workers()
+    transcribe_workers = args.transcribe_workers
+    total = sum(len(videos) for _, videos in subdirs)
+    print(f"Transcribing {total} videos in {len(subdirs)} subdirectories")
+    print(f"  ffmpeg workers={ffmpeg_workers}, transcribe workers={transcribe_workers}")
+
+    for subdir, videos in subdirs:
+        print(f"\n{subdir.name}:")
+        mp4_files = [convert_to_mp4(v) for v in sorted(videos)]
+
+        # Filter to only files needing transcription
+        to_transcribe = [f for f in mp4_files if not f.with_suffix('.txt').exists()]
+        if not to_transcribe:
+            print("  All files already transcribed")
+        else:
+            # Phase 1: Extract audio in parallel
+            print(f"  Extracting audio for {len(to_transcribe)} files...")
+            wav_map = {}
+            with ThreadPoolExecutor(max_workers=ffmpeg_workers) as executor:
+                futures = {executor.submit(extract_audio, f): f for f in to_transcribe}
+                for future in as_completed(futures):
+                    mp4 = futures[future]
+                    try:
+                        wav_map[mp4] = future.result()
+                    except Exception as e:
+                        print(f"    Error extracting audio for {mp4.name}: {e}")
+
+            # Phase 2: Transcribe (parallel if workers > 1)
+            print(f"  Transcribing {len(wav_map)} files ({transcribe_workers} workers)...")
+            try:
+                if transcribe_workers == 1:
+                    for i, (mp4, wav) in enumerate(wav_map.items(), 1):
+                        print(f"    [{i}/{len(wav_map)}] {mp4.name}")
+                        transcribe_from_wav(mp4, wav)
+                else:
+                    work_items = [(str(mp4), str(wav)) for mp4, wav in wav_map.items()]
+                    ctx = multiprocessing.get_context('spawn')
+                    pool = ctx.Pool(processes=transcribe_workers)
+                    try:
+                        for i, (video_path_str, _) in enumerate(pool.imap_unordered(transcribe_worker, work_items), 1):
+                            print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
+                    finally:
+                        pool.close()
+                        pool.join()
+            except Exception:
+                for wav in wav_map.values():
+                    wav.unlink(missing_ok=True)
+                raise
+
+        metadata_path = subdir / "metadata.json"
+        if metadata_path.exists():
+            metadata = VideoMetadata.load(metadata_path)
+            for clip in metadata.clips:
+                txt_path = subdir / Path(clip.file).with_suffix('.txt').name
+                if txt_path.exists():
+                    clip.transcript = txt_path.read_text()
+            metadata.save(metadata_path)
+
+    print("\nDone!")
+
+
+def cmd_gallery(args):
+    """Regenerate gallery.html only."""
+    if not args.output_dir.exists():
+        print(f"Error: Output directory not found: {args.output_dir}", file=sys.stderr)
+        sys.exit(1)
+    generate_gallery(args.output_dir)
+    print("Done!")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Video catalog: split recordings, transcribe, and generate gallery"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # process subcommand
+    p_process = subparsers.add_parser("process", help="Full pipeline: detect → split → transcribe → gallery")
+    p_process.add_argument("input", type=Path, help="Input video file")
+    p_process.add_argument("--output-dir", type=Path, default=Path("output"), help="Output directory (default: output)")
+    p_process.add_argument("--name", type=str, help="Override output subdirectory name")
+    p_process.add_argument("--min-confidence", type=int, default=12,
+                           help="Minimum confidence score for cuts (default: 12)")
+    p_process.add_argument("--min-gap", type=float, default=1.0,
+                           help="Minimum gap between cuts in seconds (default: 1)")
+    p_process.add_argument("--start", type=float, default=0,
+                           help="Start processing at N seconds (default: 0)")
+    p_process.add_argument("--limit", type=float, default=0,
+                           help="Limit processing to N seconds from start (0=full video)")
+    p_process.add_argument("--dry-run", action="store_true",
+                           help="Show detected cuts without splitting")
+    p_process.add_argument("--verbose", "-v", action="store_true",
+                           help="Show detailed detection info")
+    p_process.add_argument("--force", action="store_true",
+                           help="Force reprocessing even if already processed")
+    p_process.add_argument("--skip-transcribe", action="store_true",
+                           help="Skip transcription step")
+    p_process.add_argument("--workers", type=int, default=0,
+                           help="Number of parallel workers for ffmpeg (default: auto)")
+    p_process.add_argument("--transcribe-workers", type=int, default=1,
+                           help="Number of parallel Whisper workers (default: 1, ~3GB RAM each)")
+    p_process.set_defaults(func=cmd_process)
+
+    # serve subcommand
+    p_serve = subparsers.add_parser("serve", help="Start web server for viewing and editing")
+    p_serve.add_argument("--output-dir", type=Path, default=Path("output"), help="Output directory (default: output)")
+    p_serve.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
+    p_serve.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
+    p_serve.add_argument("--regenerate", action="store_true",
+                         help="Regenerate gallery HTML on each page load")
+    p_serve.set_defaults(func=cmd_serve)
+
+    # preprocess subcommand
+    p_preprocess = subparsers.add_parser("preprocess", help="Convert DV files to MP4")
+    p_preprocess.add_argument("input", type=Path, help="Input directory containing .avi files")
+    p_preprocess.add_argument("--target-dir", type=Path, required=True,
+                              help="Target directory for converted files")
+    p_preprocess.add_argument("--workers", type=int, default=0,
+                              help="Number of parallel workers (default: auto)")
+    p_preprocess.set_defaults(func=cmd_preprocess)
+
+    # transcribe subcommand
+    p_transcribe = subparsers.add_parser("transcribe", help="Transcribe existing clips")
+    p_transcribe.add_argument("--output-dir", type=Path, default=Path("output"),
+                              help="Output directory (default: output)")
+    p_transcribe.add_argument("--workers", type=int, default=0,
+                              help="Number of parallel workers for ffmpeg (default: auto)")
+    p_transcribe.add_argument("--transcribe-workers", type=int, default=1,
+                              help="Number of parallel Whisper workers (default: 1, ~3GB RAM each)")
+    p_transcribe.set_defaults(func=cmd_transcribe)
+
+    # gallery subcommand
+    p_gallery = subparsers.add_parser("gallery", help="Regenerate gallery.html only")
+    p_gallery.add_argument("--output-dir", type=Path, default=Path("output"), help="Output directory (default: output)")
+    p_gallery.set_defaults(func=cmd_gallery)
+
+    args = parser.parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
