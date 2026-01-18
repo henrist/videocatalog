@@ -197,6 +197,105 @@ function showDescriptionEditor(container) {
 // mode: 'create' | 'edit-range'
 let groupMode = null; // null | {source, startClip, startCard, mode, groupId}
 
+// Tag paint mode state
+let tagMode = null; // null | {name, confidence, action: 'add'|'remove'}
+
+const tagModeToolbar = document.getElementById('tagModeToolbar');
+const tagModeInput = document.getElementById('tagModeInput');
+const tagModeStartBtn = document.getElementById('tagModeStart');
+const tagModeToggleBtn = document.getElementById('tagModeToggle');
+
+function getTagModeConf() {
+  return tagModeToolbar.querySelector('.tag-mode-conf .conf-btn.active')?.dataset.conf || 'high';
+}
+
+function getTagModeAction() {
+  return tagModeToolbar.querySelector('.tag-mode-action .action-btn.active')?.dataset.action || 'add';
+}
+
+function startTagMode() {
+  const name = tagModeInput.value.trim();
+  if (!name) {
+    tagModeInput.focus();
+    return;
+  }
+  tagMode = { name, confidence: getTagModeConf(), action: getTagModeAction() };
+  document.body.classList.add('tag-mode', `tag-action-${tagMode.action}`);
+  tagModeStartBtn.textContent = 'Done';
+  tagModeInput.disabled = true;
+}
+
+function cancelTagMode() {
+  document.body.classList.remove('tag-mode', 'tag-action-add', 'tag-action-remove');
+  tagModeStartBtn.textContent = 'Start';
+  tagModeInput.disabled = false;
+  tagModeToolbar.classList.add('collapsed');
+  tagModeToggleBtn.classList.remove('active');
+  tagMode = null;
+}
+
+async function handleTagModeClick(card) {
+  const source = card.dataset.source;
+  const clipName = card.dataset.clip;
+  const meta = getCurrentMeta(source, clipName);
+  const existingIdx = (meta.tags || []).findIndex(t => t.name === tagMode.name);
+
+  if (tagMode.action === 'add') {
+    if (existingIdx === -1) {
+      meta.tags = meta.tags || [];
+      meta.tags.push({ name: tagMode.name, confidence: tagMode.confidence });
+      await saveEdits(source, clipName, meta);
+    }
+  } else {
+    if (existingIdx !== -1) {
+      meta.tags.splice(existingIdx, 1);
+      await saveEdits(source, clipName, meta);
+    }
+  }
+}
+
+// Tag mode toolbar events
+tagModeToggleBtn.addEventListener('click', () => {
+  if (tagMode) {
+    cancelTagMode();
+  } else {
+    tagModeToolbar.classList.toggle('collapsed');
+    tagModeToggleBtn.classList.toggle('active');
+    if (!tagModeToolbar.classList.contains('collapsed')) {
+      tagModeInput.focus();
+    }
+  }
+});
+
+tagModeStartBtn.addEventListener('click', () => {
+  if (tagMode) cancelTagMode();
+  else startTagMode();
+});
+
+tagModeToolbar.querySelectorAll('.tag-mode-conf .conf-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    tagModeToolbar.querySelectorAll('.tag-mode-conf .conf-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    tagModeToolbar.querySelectorAll('.tag-mode-action .action-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Update body class if in tag mode
+    if (tagMode) {
+      document.body.classList.remove('tag-action-add', 'tag-action-remove');
+      tagMode.action = btn.dataset.action;
+      document.body.classList.add(`tag-action-${tagMode.action}`);
+    }
+  });
+});
+
+tagModeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !tagMode) startTagMode();
+});
+
 function startGroupMode(source) {
   groupMode = { source, startClip: null, startCard: null, mode: 'create' };
   document.body.classList.add('group-mode');
@@ -746,6 +845,7 @@ collapseBtn.addEventListener('click', () => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (groupMode) cancelGroupMode();
+    else if (tagMode) cancelTagMode();
     else closeModal({target: modal});
   }
 });
@@ -928,6 +1028,14 @@ document.addEventListener('click', async (e) => {
     e.preventDefault();
     e.stopPropagation();
     handleGroupModeClick(videoCard);
+    return;
+  }
+
+  // Handle tag mode clicks (intercept all clicks on video cards)
+  if (tagMode && videoCard) {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleTagModeClick(videoCard);
     return;
   }
 
