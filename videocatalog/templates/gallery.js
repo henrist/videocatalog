@@ -729,7 +729,7 @@ search.addEventListener('input', applyAllFilters);
 let allExpanded = false;
 expandBtn.addEventListener('click', () => {
   allExpanded = !allExpanded;
-  expandBtn.textContent = allExpanded ? 'Collapse All' : 'Expand All';
+  expandBtn.textContent = allExpanded ? 'Collapse Transcripts' : 'Expand Transcripts';
   cards.forEach(card => {
     const transcript = card.querySelector('.transcript');
     const toggle = card.querySelector('.transcript-toggle');
@@ -1181,7 +1181,7 @@ function renderTagFilters() {
 
 function updateHiddenToggle() {
   const count = getHiddenClipCount();
-  showHiddenBtn.textContent = showHidden ? `Skjul (${count})` : `Vis skjulte (${count})`;
+  showHiddenBtn.textContent = showHidden ? `Showing Hidden (${count})` : `Show Hidden (${count})`;
   showHiddenBtn.classList.toggle('active', showHidden);
   showHiddenBtn.style.display = count > 0 ? '' : 'none';
 }
