@@ -89,60 +89,42 @@ function getResolvedMeta(source, clipName) {
   return { tags: mergedTags, year, yearInherited, yearInheritedFrom, group };
 }
 
-// Render tags and year for a clip
-function renderTagsYear(container) {
-  const source = container.dataset.source;
-  const clipName = container.dataset.clip;
-  const { tags, year, yearInherited } = getResolvedMeta(source, clipName);
-
+// Build HTML for tags and year badges
+function buildTagsYearHtml(tags, year, yearInherited = false) {
   let html = '';
   for (let i = 0; i < tags.length; i++) {
     const tag = tags[i];
     const inherited = tag.inherited ? ' inherited' : '';
-    const inheritedText = tag.inherited ? ' (inherited from video)' : '';
-    const title = `${tag.confidence} confidence${inheritedText}. Click to edit.`;
     const editable = !tag.inherited ? ' editable' : '';
+    const inheritedText = tag.inherited ? ' (inherited)' : '';
+    const title = `${tag.confidence} confidence${inheritedText}. Click to edit.`;
     html += `<span class="tag confidence-${tag.confidence}${inherited}${editable}" title="${title}" data-idx="${i}" data-name="${tag.name}" data-conf="${tag.confidence}" data-inherited="${tag.inherited || false}">${tag.name}</span>`;
   }
   if (year) {
     const inherited = yearInherited ? ' inherited' : '';
-    const inheritedText = yearInherited ? ' (inherited from video)' : '';
-    const title = `${year.confidence} confidence${inheritedText}. Click to edit.`;
     const editable = !yearInherited ? ' editable' : '';
+    const inheritedText = yearInherited ? ' (inherited)' : '';
+    const title = `${year.confidence} confidence${inheritedText}. Click to edit.`;
     html += `<span class="year-badge confidence-${year.confidence}${inherited}${editable}" title="${title}" data-year="${year.year}" data-conf="${year.confidence}" data-inherited="${yearInherited}">${year.year}</span>`;
   }
-  // Add buttons (only shown when API available)
   html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
   if (!year || yearInherited) {
     html += `<button class="add-btn" data-action="add-year">+year</button>`;
   }
-  container.innerHTML = html;
+  return html;
+}
+
+// Render tags and year for a clip
+function renderTagsYear(container) {
+  const { tags, year, yearInherited } = getResolvedMeta(container.dataset.source, container.dataset.clip);
+  container.innerHTML = buildTagsYearHtml(tags, year, yearInherited);
 }
 
 // Render video-level tags/year in source headers
 function renderSourceTagsYear(container) {
-  const source = container.dataset.source;
-  const edits = userEdits[source] || {};
+  const edits = userEdits[container.dataset.source] || {};
   const videoMeta = edits.video || {};
-  const tags = videoMeta.tags || [];
-  const year = videoMeta.year;
-
-  let html = '';
-  for (let i = 0; i < tags.length; i++) {
-    const tag = tags[i];
-    const title = `${tag.confidence} confidence. Click to edit.`;
-    html += `<span class="tag confidence-${tag.confidence} editable" title="${title}" data-idx="${i}" data-name="${tag.name}" data-conf="${tag.confidence}">${tag.name}</span>`;
-  }
-  if (year) {
-    const title = `${year.confidence} confidence. Click to edit.`;
-    html += `<span class="year-badge confidence-${year.confidence} editable" title="${title}" data-year="${year.year}" data-conf="${year.confidence}">${year.year}</span>`;
-  }
-  // Add buttons (only shown when API available)
-  html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
-  if (!year) {
-    html += `<button class="add-btn" data-action="add-year">+year</button>`;
-  }
-  container.innerHTML = html;
+  container.innerHTML = buildTagsYearHtml(videoMeta.tags || [], videoMeta.year);
 }
 
 // Render source descriptions
@@ -378,31 +360,10 @@ async function createGroup(source, startClip, endClip) {
 
 // Render group tags/year
 function renderGroupTagsYear(container) {
-  const source = container.dataset.source;
-  const groupId = container.dataset.groupId;
-  const edits = userEdits[source] || {};
-  const group = (edits.groups || []).find(g => g.id === groupId);
+  const edits = userEdits[container.dataset.source] || {};
+  const group = (edits.groups || []).find(g => g.id === container.dataset.groupId);
   if (!group) return;
-
-  const tags = group.tags || [];
-  const year = group.year;
-
-  let html = '';
-  for (let i = 0; i < tags.length; i++) {
-    const tag = tags[i];
-    const title = `${tag.confidence} confidence. Click to edit.`;
-    html += `<span class="tag confidence-${tag.confidence} editable" title="${title}" data-idx="${i}" data-name="${tag.name}" data-conf="${tag.confidence}">${tag.name}</span>`;
-  }
-  if (year) {
-    const title = `${year.confidence} confidence. Click to edit.`;
-    html += `<span class="year-badge confidence-${year.confidence} editable" title="${title}" data-year="${year.year}" data-conf="${year.confidence}">${year.year}</span>`;
-  }
-  // Add buttons
-  html += `<button class="add-btn" data-action="add-tag">+tag</button>`;
-  if (!year) {
-    html += `<button class="add-btn" data-action="add-year">+year</button>`;
-  }
-  container.innerHTML = html;
+  container.innerHTML = buildTagsYearHtml(group.tags || [], group.year);
 }
 
 // Render group description
@@ -702,20 +663,20 @@ function toggleTranscript(el) {
   el.textContent = isExpanded ? 'Hide transcript' : 'Show transcript';
 }
 
+function scrollToHeaderIfNeeded(header, cssVar, fallback) {
+  const headerTop = header.getBoundingClientRect().top;
+  const stickyOffset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cssVar)) || fallback;
+  if (headerTop < stickyOffset) {
+    header.scrollIntoView({ block: 'start' });
+    window.scrollBy(0, -stickyOffset);
+  }
+}
+
 function toggleGroup(header) {
   const container = header.parentElement;
   const isCollapsing = !container.classList.contains('collapsed');
-
   container.classList.toggle('collapsed');
-
-  if (isCollapsing) {
-    const headerTop = header.getBoundingClientRect().top;
-    const stickyOffset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-header-height')) || 60;
-    if (headerTop < stickyOffset) {
-      header.scrollIntoView({ block: 'start' });
-      window.scrollBy(0, -stickyOffset);
-    }
-  }
+  if (isCollapsing) scrollToHeaderIfNeeded(header, '--sticky-header-height', 60);
 }
 
 function highlightMatches(text, matches) {
@@ -731,37 +692,24 @@ function highlightMatches(text, matches) {
 // Combined filter: text search AND tag filters AND hidden toggle
 function applyAllFilters() {
   const q = search.value.trim();
-  const searchMatches = q ? new Set(fuse.search(q).map(r => r.item.idx)) : null;
+  const searchResults = q ? new Map(fuse.search(q).map(r => [r.item.idx, r])) : null;
   const filteringByHiddenTag = [...activeFilters].some(f => f.startsWith('Skjul:'));
 
   cards.forEach((card, i) => {
-    // Check text search
-    let matchesSearch = true;
-    if (searchMatches !== null) {
-      matchesSearch = searchMatches.has(i);
-    }
-
-    // Check tag filters
-    let matchesTags = true;
-    if (activeFilters.size > 0) {
+    const searchResult = searchResults?.get(i);
+    const matchesSearch = !searchResults || searchResult;
+    const matchesTags = activeFilters.size === 0 || (() => {
       const { tags } = getResolvedMeta(card.dataset.source, card.dataset.clip);
       const cardTagNames = new Set(tags.map(t => t.name));
-      matchesTags = [...activeFilters].every(f => cardTagNames.has(f));
-    }
-
-    // Check hidden clips (show if toggle on OR filtering by a Skjul: tag)
-    let matchesHidden = true;
-    if (!showHidden && !filteringByHiddenTag && isClipHidden(card.dataset.source, card.dataset.clip)) {
-      matchesHidden = false;
-    }
+      return [...activeFilters].every(f => cardTagNames.has(f));
+    })();
+    const matchesHidden = showHidden || filteringByHiddenTag || !isClipHidden(card.dataset.source, card.dataset.clip);
 
     card.classList.toggle('hidden', !(matchesSearch && matchesTags && matchesHidden));
 
-    // Update transcript highlighting
     const transcriptEl = card.querySelector('.transcript');
-    if (q && matchesSearch) {
-      const result = fuse.search(q).find(r => r.item.idx === i);
-      transcriptEl.innerHTML = highlightMatches(card.dataset.transcript, result?.matches);
+    if (searchResult) {
+      transcriptEl.innerHTML = highlightMatches(card.dataset.transcript, searchResult.matches);
     } else {
       transcriptEl.textContent = card.dataset.transcript;
     }
@@ -787,6 +735,8 @@ function applyAllFilters() {
   });
 
   groups.forEach(g => g.classList.remove('collapsed'));
+  updateNavCounts();
+  updateHiddenToggle();
 }
 
 search.addEventListener('input', applyAllFilters);
@@ -859,15 +809,18 @@ function confButtons(current) {
   return `<span class="conf-label">Confidence:</span>${btns}`;
 }
 
-function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf, groupId = null) {
-  popupContext = { source, clipName, groupId, type: 'edit-tag', tagIdx, tagName, tagConf };
+function showTagPopup(element, source, clipName, groupId = null, edit = null) {
+  const isEdit = edit !== null;
+  popupContext = isEdit
+    ? { source, clipName, groupId, type: 'edit-tag', tagIdx: edit.idx, tagName: edit.name, tagConf: edit.conf }
+    : { source, clipName, groupId, type: 'add-tag' };
   popup.innerHTML = `
     <div class="popup-row">
-      <input type="text" class="tag-name-input" value="${tagName}">
+      <input type="text" class="tag-name-input" value="${edit?.name || ''}" placeholder="Tag name">
     </div>
     <div class="popup-row">
-      ${confButtons(tagConf)}
-      <button class="delete-btn">Delete</button>
+      ${confButtons(edit?.conf || 'high')}
+      ${isEdit ? '<button class="delete-btn">Delete</button>' : ''}
       <button class="batch-btn">Batch</button>
     </div>
   `;
@@ -876,46 +829,16 @@ function showTagPopup(element, source, clipName, tagIdx, tagName, tagConf, group
   popup.querySelector('.tag-name-input').focus();
 }
 
-function showYearPopup(element, source, clipName, year, conf, groupId = null) {
-  popupContext = { source, clipName, groupId, type: 'edit-year' };
+function showYearPopup(element, source, clipName, groupId = null, edit = null) {
+  const isEdit = edit !== null;
+  popupContext = { source, clipName, groupId, type: isEdit ? 'edit-year' : 'add-year' };
   popup.innerHTML = `
     <div class="popup-row">
-      <input type="number" class="year-input" value="${year}" placeholder="Year">
+      <input type="number" class="year-input" value="${edit?.year || ''}" placeholder="Year">
     </div>
     <div class="popup-row">
-      ${confButtons(conf)}
-      <button class="delete-btn">Delete</button>
-    </div>
-  `;
-  positionPopup(element);
-  popup.classList.add('active');
-  popup.querySelector('.year-input').focus();
-}
-
-function showAddTagPopup(element, source, clipName, groupId = null) {
-  popupContext = { source, clipName, groupId, type: 'add-tag' };
-  popup.innerHTML = `
-    <div class="popup-row">
-      <input type="text" class="tag-name-input" placeholder="Tag name">
-    </div>
-    <div class="popup-row">
-      ${confButtons('high')}
-      <button class="batch-btn">Batch</button>
-    </div>
-  `;
-  positionPopup(element);
-  popup.classList.add('active');
-  popup.querySelector('.tag-name-input').focus();
-}
-
-function showAddYearPopup(element, source, clipName, groupId = null) {
-  popupContext = { source, clipName, groupId, type: 'add-year' };
-  popup.innerHTML = `
-    <div class="popup-row">
-      <input type="number" class="year-input" placeholder="Year">
-    </div>
-    <div class="popup-row">
-      ${confButtons('low')}
+      ${confButtons(edit?.conf || 'low')}
+      ${isEdit ? '<button class="delete-btn">Delete</button>' : ''}
     </div>
   `;
   positionPopup(element);
@@ -1026,17 +949,8 @@ document.addEventListener('click', async (e) => {
   if (groupHeader && !e.target.closest('.tag, .year-badge, .add-btn, .add-desc-btn, .group-actions')) {
     const container = groupHeader.closest('.clip-group');
     const isCollapsing = !container.classList.contains('collapsed');
-
     container.classList.toggle('collapsed');
-
-    if (isCollapsing) {
-      const headerTop = groupHeader.getBoundingClientRect().top;
-      const stickyOffset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-header-plus-source')) || 108;
-      if (headerTop < stickyOffset) {
-        groupHeader.scrollIntoView({ block: 'start' });
-        window.scrollBy(0, -stickyOffset);
-      }
-    }
+    if (isCollapsing) scrollToHeaderIfNeeded(groupHeader, '--sticky-header-plus-source', 108);
     return;
   }
 
@@ -1177,9 +1091,9 @@ document.addEventListener('click', async (e) => {
 
     closePopup();
     if (action === 'add-tag') {
-      showAddTagPopup(addBtn, source, clipName, groupId);
+      showTagPopup(addBtn, source, clipName, groupId);
     } else if (action === 'add-year') {
-      showAddYearPopup(addBtn, source, clipName, groupId);
+      showYearPopup(addBtn, source, clipName, groupId);
     }
     return;
   }
@@ -1191,7 +1105,7 @@ document.addEventListener('click', async (e) => {
     const clipName = container.dataset.clip || null;
     const groupId = container.dataset.groupId || null;
     closePopup();
-    showTagPopup(tag, source, clipName, parseInt(tag.dataset.idx), tag.dataset.name, tag.dataset.conf, groupId);
+    showTagPopup(tag, source, clipName, groupId, { idx: parseInt(tag.dataset.idx), name: tag.dataset.name, conf: tag.dataset.conf });
     return;
   }
 
@@ -1202,7 +1116,7 @@ document.addEventListener('click', async (e) => {
     const clipName = container.dataset.clip || null;
     const groupId = container.dataset.groupId || null;
     closePopup();
-    showYearPopup(yearBadge, source, clipName, yearBadge.dataset.year, yearBadge.dataset.conf, groupId);
+    showYearPopup(yearBadge, source, clipName, groupId, { year: yearBadge.dataset.year, conf: yearBadge.dataset.conf });
     return;
   }
 });
@@ -1340,64 +1254,21 @@ updateHiddenToggle();
 applyAllFilters(); // Hide hidden clips on page load
 updateNavCounts(); // Update nav counts after initial filter
 
-// Lazy loading with two-tier debounce: fast for viewport, slow for preload zone
-const viewportImages = new Set();
-const preloadImages = new Set();
-let viewportTimeout = null;
-let preloadTimeout = null;
-
-function loadImage(img) {
-  if (img.dataset.src && img.classList.contains('lazy')) {
-    img.onload = () => img.classList.remove('lazy');
-    img.src = img.dataset.src;
-    viewportObserver.unobserve(img);
-    preloadObserver.unobserve(img);
-  }
-}
-
-// Fast loading for images in actual viewport
-const viewportObserver = new IntersectionObserver((entries) => {
+// Lazy loading with preload margin
+const lazyObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
-      viewportImages.add(entry.target);
-    } else {
-      viewportImages.delete(entry.target);
+      const img = entry.target;
+      if (img.dataset.src) {
+        img.onload = () => img.classList.remove('lazy');
+        img.src = img.dataset.src;
+        lazyObserver.unobserve(img);
+      }
     }
   });
+}, { rootMargin: '50% 0px' });
 
-  if (!viewportTimeout && viewportImages.size > 0) {
-    viewportTimeout = setTimeout(() => {
-      viewportImages.forEach(loadImage);
-      viewportImages.clear();
-      viewportTimeout = null;
-    }, 100);
-  }
-});
-
-// Slower preloading for images in margin
-const preloadObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      preloadImages.add(entry.target);
-    } else {
-      preloadImages.delete(entry.target);
-    }
-  });
-
-  if (!preloadTimeout && preloadImages.size > 0) {
-    preloadTimeout = setTimeout(() => {
-      preloadImages.forEach(loadImage);
-      preloadImages.clear();
-      preloadTimeout = null;
-    }, 300);
-  }
-}, { rootMargin: `${Math.round(window.innerHeight * 1.5)}px 0px` });
-
-// Observe all lazy images with both observers
-document.querySelectorAll('.thumb-grid img.lazy').forEach(img => {
-  viewportObserver.observe(img);
-  preloadObserver.observe(img);
-});
+document.querySelectorAll('.thumb-grid img.lazy').forEach(img => lazyObserver.observe(img));
 
 // Navigation panel functionality
 function formatDuration(secs) {
@@ -1541,14 +1412,6 @@ function updateNavCounts() {
     item.classList.toggle('dimmed', visibleCards.length === 0);
   });
 }
-
-// Hook into existing filter function
-const originalApplyAllFilters = applyAllFilters;
-applyAllFilters = function() {
-  originalApplyAllFilters();
-  updateNavCounts();
-  updateHiddenToggle();
-};
 
 // Update sticky offsets based on header height
 function updateStickyOffsets() {
