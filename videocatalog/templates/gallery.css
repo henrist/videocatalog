@@ -119,6 +119,19 @@ h1 { margin-bottom: 20px; }
   border-color: #668;
   color: #fff;
 }
+/* Hidden toggle button */
+.hidden-toggle {
+  background: #2a2a2a;
+}
+.hidden-toggle.active {
+  background: #446;
+  border-color: #668;
+}
+/* Hidden tags in filter list */
+.filter-tag.hidden-tag {
+  background: #3a2a2a;
+  border-color: #544;
+}
 .source-group { margin-bottom: 24px; }
 .source-header {
   display: flex;

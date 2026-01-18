@@ -11,7 +11,24 @@ const collapseBtn = document.getElementById('collapseGroups');
 const cards = document.querySelectorAll('.video-card');
 const groups = document.querySelectorAll('.source-group');
 const tagFiltersEl = document.getElementById('tagFilters');
+const showHiddenBtn = document.getElementById('showHiddenBtn');
 let activeFilters = new Set();
+let showHidden = false;
+
+// Check if clip has any Skjul:* tag
+function isClipHidden(source, clipName) {
+  const { tags } = getResolvedMeta(source, clipName);
+  return tags.some(t => t.name.startsWith('Skjul:'));
+}
+
+// Count clips with Skjul:* tags
+function getHiddenClipCount() {
+  let count = 0;
+  cards.forEach(card => {
+    if (isClipHidden(card.dataset.source, card.dataset.clip)) count++;
+  });
+  return count;
+}
 
 // Check if a clip is within a group's range (uses string comparison since names are sortable)
 function clipInGroup(clipName, group) {
@@ -639,10 +656,11 @@ function highlightMatches(text, matches) {
   return result;
 }
 
-// Combined filter: text search AND tag filters
+// Combined filter: text search AND tag filters AND hidden toggle
 function applyAllFilters() {
   const q = search.value.trim();
   const searchMatches = q ? new Set(fuse.search(q).map(r => r.item.idx)) : null;
+  const filteringByHiddenTag = [...activeFilters].some(f => f.startsWith('Skjul:'));
 
   cards.forEach((card, i) => {
     // Check text search
@@ -659,7 +677,13 @@ function applyAllFilters() {
       matchesTags = [...activeFilters].every(f => cardTagNames.has(f));
     }
 
-    card.classList.toggle('hidden', !(matchesSearch && matchesTags));
+    // Check hidden clips (show if toggle on OR filtering by a Skjul: tag)
+    let matchesHidden = true;
+    if (!showHidden && !filteringByHiddenTag && isClipHidden(card.dataset.source, card.dataset.clip)) {
+      matchesHidden = false;
+    }
+
+    card.classList.toggle('hidden', !(matchesSearch && matchesTags && matchesHidden));
 
     // Update transcript highlighting
     const transcriptEl = card.querySelector('.transcript');
@@ -1118,31 +1142,54 @@ document.addEventListener('keydown', (e) => {
 
 // Tag filtering
 function getAllTags() {
-  const tags = new Map(); // tag name -> count
+  const regularTags = new Map(); // tag name -> count
+  const hiddenTags = new Map();
   for (const source in userEdits) {
     const edits = userEdits[source];
     const videoTags = edits.video?.tags || [];
-    videoTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+    videoTags.forEach(t => {
+      const map = t.name.startsWith('Skjul:') ? hiddenTags : regularTags;
+      map.set(t.name, (map.get(t.name) || 0) + 1);
+    });
     // Include group tags
     const groups = edits.groups || [];
     groups.forEach(g => {
-      (g.tags || []).forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+      (g.tags || []).forEach(t => {
+        const map = t.name.startsWith('Skjul:') ? hiddenTags : regularTags;
+        map.set(t.name, (map.get(t.name) || 0) + 1);
+      });
     });
     for (const clipName in edits.clips || {}) {
       const clipTags = edits.clips[clipName]?.tags || [];
-      clipTags.forEach(t => tags.set(t.name, (tags.get(t.name) || 0) + 1));
+      clipTags.forEach(t => {
+        const map = t.name.startsWith('Skjul:') ? hiddenTags : regularTags;
+        map.set(t.name, (map.get(t.name) || 0) + 1);
+      });
     }
   }
-  return [...tags.entries()].sort((a, b) => b[1] - a[1]); // sort by count desc
+  return {
+    regular: [...regularTags.entries()].sort((a, b) => b[1] - a[1]),
+    hidden: [...hiddenTags.entries()].sort((a, b) => b[1] - a[1])
+  };
 }
 
 function renderTagFilters() {
-  const tags = getAllTags();
-  tagFiltersEl.innerHTML = tags.map(([name, count]) =>
-    `<span class="filter-tag${activeFilters.has(name) ? ' active' : ''}" data-tag="${name}">${name} (${count})</span>`
-  ).join('');
+  const { regular, hidden } = getAllTags();
+  const allTags = [...regular, ...hidden];
+  tagFiltersEl.innerHTML = allTags.map(([name, count]) => {
+    const isHidden = name.startsWith('Skjul:');
+    return `<span class="filter-tag${activeFilters.has(name) ? ' active' : ''}${isHidden ? ' hidden-tag' : ''}" data-tag="${name}">${name} (${count})</span>`;
+  }).join('');
+
   // Also update nav tags when filters are re-rendered (after edits)
   if (typeof renderNavTags === 'function') renderNavTags();
+}
+
+function updateHiddenToggle() {
+  const count = getHiddenClipCount();
+  showHiddenBtn.textContent = showHidden ? `Skjul (${count})` : `Vis skjulte (${count})`;
+  showHiddenBtn.classList.toggle('active', showHidden);
+  showHiddenBtn.style.display = count > 0 ? '' : 'none';
 }
 
 tagFiltersEl.addEventListener('click', (e) => {
@@ -1158,7 +1205,16 @@ tagFiltersEl.addEventListener('click', (e) => {
   applyAllFilters();
 });
 
+// Show hidden toggle
+showHiddenBtn.addEventListener('click', () => {
+  showHidden = !showHidden;
+  updateHiddenToggle();
+  applyAllFilters();
+});
+
 renderTagFilters();
+updateHiddenToggle();
+applyAllFilters(); // Hide hidden clips on page load
 
 // Lazy loading with debounced Intersection Observer
 const pendingImages = new Set();
@@ -1340,4 +1396,5 @@ const originalApplyAllFilters = applyAllFilters;
 applyAllFilters = function() {
   originalApplyAllFilters();
   updateNavCounts();
+  updateHiddenToggle();
 };
