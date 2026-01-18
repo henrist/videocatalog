@@ -1314,6 +1314,7 @@ showHiddenBtn.addEventListener('click', () => {
 renderTagFilters();
 updateHiddenToggle();
 applyAllFilters(); // Hide hidden clips on page load
+updateNavCounts(); // Update nav counts after initial filter
 
 // Lazy loading with two-tier debounce: fast for viewport, slow for preload zone
 const viewportImages = new Set();
@@ -1482,14 +1483,19 @@ function updateNavCounts() {
     if (!sourceGroup) return;
 
     const visibleCards = sourceGroup.querySelectorAll('.video-card:not(.hidden)');
-    const totalCards = sourceGroup.querySelectorAll('.video-card');
+    const allCards = sourceGroup.querySelectorAll('.video-card');
     const clipCountEl = item.querySelector('.nav-clip-count');
 
+    // Effective total: exclude hidden clips unless showHidden is active
+    const effectiveTotal = showHidden
+      ? allCards.length
+      : [...allCards].filter(c => !isClipHidden(c.dataset.source, c.dataset.clip)).length;
+
     // Update clip count
-    if (visibleCards.length === totalCards.length) {
-      clipCountEl.textContent = totalCards.length;
+    if (visibleCards.length === effectiveTotal) {
+      clipCountEl.textContent = effectiveTotal;
     } else {
-      clipCountEl.textContent = `${visibleCards.length}/${totalCards.length}`;
+      clipCountEl.textContent = `${visibleCards.length}/${effectiveTotal}`;
     }
 
     // Calculate visible duration
