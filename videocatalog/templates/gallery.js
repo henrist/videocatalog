@@ -1324,23 +1324,63 @@ renderTagFilters();
 updateHiddenToggle();
 applyAllFilters(); // Hide hidden clips on page load
 
-// Lazy loading with Intersection Observer
-const lazyObserver = new IntersectionObserver((entries) => {
+// Lazy loading with two-tier debounce: fast for viewport, slow for preload zone
+const viewportImages = new Set();
+const preloadImages = new Set();
+let viewportTimeout = null;
+let preloadTimeout = null;
+
+function loadImage(img) {
+  if (img.dataset.src && img.classList.contains('lazy')) {
+    img.onload = () => img.classList.remove('lazy');
+    img.src = img.dataset.src;
+    viewportObserver.unobserve(img);
+    preloadObserver.unobserve(img);
+  }
+}
+
+// Fast loading for images in actual viewport
+const viewportObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
-      const img = entry.target;
-      if (img.dataset.src && img.classList.contains('lazy')) {
-        img.onload = () => img.classList.remove('lazy');
-        img.src = img.dataset.src;
-        lazyObserver.unobserve(img);
-      }
+      viewportImages.add(entry.target);
+    } else {
+      viewportImages.delete(entry.target);
     }
   });
-}, { rootMargin: `${Math.round(window.innerHeight * 1.5)}px` });
 
-// Observe all lazy images
+  if (!viewportTimeout && viewportImages.size > 0) {
+    viewportTimeout = setTimeout(() => {
+      viewportImages.forEach(loadImage);
+      viewportImages.clear();
+      viewportTimeout = null;
+    }, 100);
+  }
+});
+
+// Slower preloading for images in margin
+const preloadObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      preloadImages.add(entry.target);
+    } else {
+      preloadImages.delete(entry.target);
+    }
+  });
+
+  if (!preloadTimeout && preloadImages.size > 0) {
+    preloadTimeout = setTimeout(() => {
+      preloadImages.forEach(loadImage);
+      preloadImages.clear();
+      preloadTimeout = null;
+    }, 300);
+  }
+}, { rootMargin: `${Math.round(window.innerHeight * 1.5)}px 0px` });
+
+// Observe all lazy images with both observers
 document.querySelectorAll('.thumb-grid img.lazy').forEach(img => {
-  lazyObserver.observe(img);
+  viewportObserver.observe(img);
+  preloadObserver.observe(img);
 });
 
 // Navigation panel functionality
