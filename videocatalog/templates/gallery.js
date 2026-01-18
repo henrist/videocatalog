@@ -828,7 +828,7 @@ function showYearPopup(element, source, clipName, groupId = null, edit = null) {
       <input type="number" class="year-input" value="${edit?.year || ''}" placeholder="Year">
     </div>
     <div class="popup-row">
-      ${confButtons(edit?.conf || 'low')}
+      ${confButtons(edit?.conf || 'high')}
       ${isEdit ? '<button class="delete-btn">Delete</button>' : ''}
     </div>
   `;
