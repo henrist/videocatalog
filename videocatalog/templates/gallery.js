@@ -1528,3 +1528,18 @@ applyAllFilters = function() {
   updateNavCounts();
   updateHiddenToggle();
 };
+
+// Update sticky offsets based on header height
+function updateStickyOffsets() {
+  const header = document.getElementById('stickyHeader');
+  if (!header) return;
+  const h = header.offsetHeight;
+  document.documentElement.style.setProperty('--sticky-header-height', h + 'px');
+  // Measure actual source header height
+  const sourceHeader = document.querySelector('.source-header');
+  const sh = sourceHeader ? sourceHeader.offsetHeight : 48;
+  document.documentElement.style.setProperty('--sticky-header-plus-source', (h + sh) + 'px');
+}
+window.addEventListener('load', updateStickyOffsets);
+window.addEventListener('resize', updateStickyOffsets);
+updateStickyOffsets();

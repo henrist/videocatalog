@@ -24,27 +24,29 @@
     </nav>
     <div class="main-content">
       <h1>Video Gallery</h1>
-      <div class="controls">
-        <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
-        <button class="btn hidden-toggle" id="showHiddenBtn">Vis skjulte (0)</button>
-        <button class="btn" id="expandAll">Expand All</button>
-        <button class="btn" id="collapseGroups">Collapse Sources</button>
-        <button class="btn tag-mode-toggle" id="tagModeToggle">Batch Tag</button>
-      </div>
-      <div class="tag-mode-toolbar collapsed" id="tagModeToolbar">
-        <input type="text" class="tag-mode-input" id="tagModeInput" placeholder="Tag name">
-        <div class="tag-mode-conf">
-          <button class="conf-btn active" data-conf="high">high</button>
-          <button class="conf-btn" data-conf="medium">med</button>
-          <button class="conf-btn" data-conf="low">low</button>
+      <div class="sticky-header" id="stickyHeader">
+        <div class="controls">
+          <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
+          <button class="btn hidden-toggle" id="showHiddenBtn">Vis skjulte (0)</button>
+          <button class="btn" id="expandAll">Expand All</button>
+          <button class="btn" id="collapseGroups">Collapse Sources</button>
+          <button class="btn tag-mode-toggle" id="tagModeToggle">Batch Tag</button>
         </div>
-        <div class="tag-mode-action">
-          <button class="action-btn active" data-action="add">add</button>
-          <button class="action-btn" data-action="remove">remove</button>
+        <div class="tag-mode-toolbar collapsed" id="tagModeToolbar">
+          <input type="text" class="tag-mode-input" id="tagModeInput" placeholder="Tag name">
+          <div class="tag-mode-conf">
+            <button class="conf-btn active" data-conf="high">high</button>
+            <button class="conf-btn" data-conf="medium">med</button>
+            <button class="conf-btn" data-conf="low">low</button>
+          </div>
+          <div class="tag-mode-action">
+            <button class="action-btn active" data-action="add">add</button>
+            <button class="action-btn" data-action="remove">remove</button>
+          </div>
+          <button class="btn tag-mode-start" id="tagModeStart">Start</button>
         </div>
-        <button class="btn tag-mode-start" id="tagModeStart">Start</button>
+        <div class="tag-filters" id="tagFilters"></div>
       </div>
-      <div class="tag-filters" id="tagFilters"></div>
       <div id="content">
 {% for source in sources %}
   <div class="source-group" data-source="{{ source.name }}">
