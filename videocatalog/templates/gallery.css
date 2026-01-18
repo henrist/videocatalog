@@ -3,9 +3,73 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #1a1a1a;
   color: #fff;
-  padding: 20px;
 }
 h1 { margin-bottom: 20px; }
+/* App layout */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+.nav-panel {
+  width: 240px;
+  flex-shrink: 0;
+  background: #141414;
+  border-right: 1px solid #333;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.nav-header {
+  padding: 16px 14px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  border-bottom: 1px solid #333;
+}
+.nav-list {
+  list-style: none;
+}
+.nav-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #222;
+}
+.nav-item:hover { background: #1f1f1f; }
+.nav-item.active { background: #252540; border-left: 3px solid #668; }
+.nav-item.dimmed { opacity: 0.4; }
+.nav-source-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-meta {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-top: 3px;
+}
+.nav-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+.nav-tags:empty { display: none; }
+.nav-tags .tag, .nav-tags .year-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.main-content {
+  flex: 1;
+  padding: 20px;
+  min-width: 0;
+}
 .controls {
   display: flex;
   gap: 12px;

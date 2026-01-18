@@ -10,6 +10,16 @@ from jinja2 import Environment, BaseLoader
 from .models import VideoMetadata, UserEditsFile
 
 
+def _parse_duration_secs(duration_str: str) -> int:
+    """Parse duration string like '1:23' or '1:02:34' to seconds."""
+    parts = duration_str.split(':')
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0
+
+
 def _load_template_file(name: str) -> str:
     """Load a template file from the templates directory."""
     return importlib.resources.files(__package__).joinpath("templates", name).read_text()
@@ -40,6 +50,7 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
                 "sprite": clip.sprite,
                 "thumbs": clip.thumbs,
                 "duration": clip.duration,
+                "duration_secs": _parse_duration_secs(clip.duration),
                 "transcript": html_lib.escape(clip.transcript),
             })
 

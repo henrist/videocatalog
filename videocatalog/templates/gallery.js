@@ -481,6 +481,7 @@ async function saveEditsRaw(source, edits) {
     if (resp.ok) {
       userEdits[source] = edits;
       renderTagFilters();
+      if (typeof updateNavGroupCounts === 'function') updateNavGroupCounts();
     }
   } catch (e) {
     console.error('Save failed:', e);
@@ -1140,6 +1141,8 @@ function renderTagFilters() {
   tagFiltersEl.innerHTML = tags.map(([name, count]) =>
     `<span class="filter-tag${activeFilters.has(name) ? ' active' : ''}" data-tag="${name}">${name} (${count})</span>`
   ).join('');
+  // Also update nav tags when filters are re-rendered (after edits)
+  if (typeof renderNavTags === 'function') renderNavTags();
 }
 
 tagFiltersEl.addEventListener('click', (e) => {
@@ -1193,3 +1196,148 @@ const lazyObserver = new IntersectionObserver((entries) => {
 document.querySelectorAll('.thumb-grid img.lazy').forEach(img => {
   lazyObserver.observe(img);
 });
+
+// Navigation panel functionality
+function formatDuration(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// Initialize nav durations
+document.querySelectorAll('.nav-duration').forEach(el => {
+  const secs = parseInt(el.dataset.totalSecs) || 0;
+  el.textContent = formatDuration(secs);
+});
+
+// Render nav tags and years (collecting from video, groups, clips)
+function renderNavTags() {
+  document.querySelectorAll('.nav-tags').forEach(container => {
+    const source = container.dataset.source;
+    const edits = userEdits[source] || {};
+    const tags = edits.video?.tags || [];
+
+    // Collect all years from video, groups, and clips
+    const years = new Set();
+    if (edits.video?.year) years.add(edits.video.year.year);
+    (edits.groups || []).forEach(g => { if (g.year) years.add(g.year.year); });
+    Object.values(edits.clips || {}).forEach(c => { if (c.year) years.add(c.year.year); });
+
+    let html = '';
+    if (years.size > 0) {
+      const sorted = [...years].sort();
+      const yearText = sorted.length === 1 ? sorted[0] :
+        (sorted[sorted.length - 1] - sorted[0] === sorted.length - 1 ?
+          `${sorted[0]}-${sorted[sorted.length - 1]}` : sorted.join(', '));
+      html += `<span class="year-badge">${yearText}</span>`;
+    }
+    html += tags.map(t =>
+      `<span class="tag confidence-${t.confidence}">${t.name}</span>`
+    ).join('');
+    container.innerHTML = html;
+  });
+}
+renderNavTags();
+
+// Update nav group counts
+function updateNavGroupCounts() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const source = item.dataset.source;
+    const edits = userEdits[source] || {};
+    const groupCount = (edits.groups || []).length;
+    const groupEl = item.querySelector('.nav-group-count');
+    if (groupEl) {
+      groupEl.textContent = groupCount > 0 ? ` · ${groupCount} groups` : '';
+    }
+  });
+}
+updateNavGroupCounts();
+
+// Click-to-scroll
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const source = item.dataset.source;
+    const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
+    if (sourceGroup) {
+      sourceGroup.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+});
+
+// Active source highlighting via scroll position
+const navItems = document.querySelectorAll('.nav-item');
+const sourceGroups = document.querySelectorAll('.source-group');
+
+function updateActiveNav() {
+  const offset = 100; // pixels from viewport top to trigger
+  let activeSource = null;
+
+  // Find the last source group whose top has scrolled past the trigger point
+  for (const group of sourceGroups) {
+    if (group.classList.contains('hidden')) continue;
+    if (group.getBoundingClientRect().top <= offset) {
+      activeSource = group.dataset.source;
+    }
+  }
+
+  // If nothing is past the trigger, use the first visible source
+  if (!activeSource) {
+    for (const group of sourceGroups) {
+      if (!group.classList.contains('hidden')) {
+        activeSource = group.dataset.source;
+        break;
+      }
+    }
+  }
+
+  navItems.forEach(item => item.classList.toggle('active', item.dataset.source === activeSource));
+}
+
+window.addEventListener('scroll', updateActiveNav, { passive: true });
+updateActiveNav();
+
+// Update nav on filter changes
+function updateNavCounts() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const source = item.dataset.source;
+    const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
+    if (!sourceGroup) return;
+
+    const visibleCards = sourceGroup.querySelectorAll('.video-card:not(.hidden)');
+    const totalCards = sourceGroup.querySelectorAll('.video-card');
+    const clipCountEl = item.querySelector('.nav-clip-count');
+
+    // Update clip count
+    if (visibleCards.length === totalCards.length) {
+      clipCountEl.textContent = totalCards.length;
+    } else {
+      clipCountEl.textContent = `${visibleCards.length}/${totalCards.length}`;
+    }
+
+    // Calculate visible duration
+    let visibleSecs = 0;
+    visibleCards.forEach(card => {
+      const durationEl = card.querySelector('.video-duration');
+      if (durationEl) {
+        const parts = durationEl.textContent.split(':');
+        if (parts.length === 2) {
+          visibleSecs += parseInt(parts[0]) * 60 + parseInt(parts[1]);
+        } else if (parts.length === 3) {
+          visibleSecs += parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+        }
+      }
+    });
+    item.querySelector('.nav-duration').textContent = formatDuration(visibleSecs);
+
+    // Dim if no visible clips
+    item.classList.toggle('dimmed', visibleCards.length === 0);
+  });
+}
+
+// Hook into existing filter function
+const originalApplyAllFilters = applyAllFilters;
+applyAllFilters = function() {
+  originalApplyAllFilters();
+  updateNavCounts();
+};

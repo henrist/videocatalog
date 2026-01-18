@@ -9,14 +9,28 @@
   </style>
 </head>
 <body>
-  <h1>Video Gallery</h1>
-  <div class="controls">
-    <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
-    <button class="btn" id="expandAll">Expand All</button>
-    <button class="btn" id="collapseGroups">Collapse Sources</button>
-  </div>
-  <div class="tag-filters" id="tagFilters"></div>
-  <div id="content">
+  <div class="app-layout">
+    <nav class="nav-panel">
+      <div class="nav-header">Sources</div>
+      <ul class="nav-list">
+{% for source in sources %}
+        <li class="nav-item" data-source="{{ source.name }}">
+          <span class="nav-source-name">{{ source.name }}</span>
+          <span class="nav-meta"><span class="nav-clip-count">{{ source.clips | length }}</span> clips<span class="nav-group-count"></span> · <span class="nav-duration" data-total-secs="{{ source.clips | sum(attribute='duration_secs') }}"></span></span>
+          <div class="nav-tags" data-source="{{ source.name }}"></div>
+        </li>
+{% endfor %}
+      </ul>
+    </nav>
+    <div class="main-content">
+      <h1>Video Gallery</h1>
+      <div class="controls">
+        <input type="text" class="search-box" id="search" placeholder="Search transcripts and tags...">
+        <button class="btn" id="expandAll">Expand All</button>
+        <button class="btn" id="collapseGroups">Collapse Sources</button>
+      </div>
+      <div class="tag-filters" id="tagFilters"></div>
+      <div id="content">
 {% for source in sources %}
   <div class="source-group" data-source="{{ source.name }}">
     <div class="source-header">
@@ -54,6 +68,8 @@
     </div>
   </div>
 {% endfor %}
+      </div>
+    </div>
   </div>
   <div class="modal" id="modal" onclick="closeModal(event)">
     <span class="modal-close">&times;</span>
