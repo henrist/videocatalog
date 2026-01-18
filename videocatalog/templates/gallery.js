@@ -1162,8 +1162,8 @@ function getAllTags() {
     }
   }
   return {
-    regular: [...regularTags.entries()].sort((a, b) => b[1] - a[1]),
-    hidden: [...hiddenTags.entries()].sort((a, b) => b[1] - a[1])
+    regular: [...regularTags.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+    hidden: [...hiddenTags.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   };
 }
 
