@@ -249,131 +249,157 @@ def main():
     print()
 
     print("Running detection...")
-    result = detect_cuts(
-        args.input,
-        start_time=start_time,
-        end_time=end_time,
-        min_confidence=args.min_confidence,
-        min_gap=args.min_gap,
-        verbose=args.verbose,
-    )
-    cuts = result.cuts
-    all_candidates = result.all_candidates
-    duration = end_time  # Use analyzed segment end, not full video duration
 
-    noise_info = f", {len(result.noise_zones)} noise zones" if result.noise_zones else ""
-    print(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes{noise_info}")
-    print(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
+    # Create log file for detection output (always verbose)
+    video_subdir.mkdir(parents=True, exist_ok=True)
+    log_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = video_subdir / f"detection_log_{log_timestamp}.txt"
+    log_file = open(log_path, "w")
 
-    if args.verbose:
-        print()
-        print("=== RAW DETECTION DATA ===")
-        print()
-        print("Scene changes (time, score) - threshold >=5:")
+    try:
+        # Write processing parameters
+        log_file.write(f"Source: {args.input}\n")
+        log_file.write(f"Duration: {format_time(full_duration)}")
+        if start_time > 0 or end_time < full_duration:
+            log_file.write(f" (analyzing {format_time(start_time)} - {format_time(end_time)})")
+        log_file.write(f"\nmin_confidence={args.min_confidence}, min_gap={args.min_gap}\n\n")
+
+        result = detect_cuts(
+            args.input,
+            start_time=start_time,
+            end_time=end_time,
+            min_confidence=args.min_confidence,
+            min_gap=args.min_gap,
+            verbose=args.verbose,
+            log_file=log_file,
+        )
+        cuts = result.cuts
+        all_candidates = result.all_candidates
+        duration = end_time  # Use analyzed segment end, not full video duration
+
+        # Helper: write to log file always, console only if verbose
+        def log(msg: str):
+            log_file.write(msg + "\n")
+            if args.verbose:
+                print(msg)
+
+        # Helper: write to both log file and console always
+        def log_always(msg: str):
+            log_file.write(msg + "\n")
+            print(msg)
+
+        noise_info = f", {len(result.noise_zones)} noise zones" if result.noise_zones else ""
+        log_always(f"  Found {len(result.scenes)} scene changes, {len(result.blacks)} black frames, {len(result.audio_changes)} audio changes{noise_info}")
+        log_always(f"  Analyzed {len(all_candidates)} candidates, verified {len(cuts)} cuts")
+
+        log("")
+        log("=== RAW DETECTION DATA ===")
+        log("")
+        log("Scene changes (time, score) - threshold >=5:")
         for time, score in sorted(result.scenes):
             marker = " ***" if score >= 15 else " **" if score >= 10 else " *" if score >= 6 else ""
-            print(f"  {format_time(time)} score={score:5.1f}{marker}")
-        print()
-        print("Black frames (end_time, duration) - all >=0.1s:")
+            log(f"  {format_time(time)} score={score:5.1f}{marker}")
+        log("")
+        log("Black frames (end_time, duration) - all >=0.1s:")
         for black_end, dur in sorted(result.blacks):
             marker = " ***" if dur >= 1.0 else " **" if dur >= 0.5 else " *" if dur >= 0.2 else ""
-            print(f"  {format_time(black_end)} dur={dur:.2f}s{marker}")
-        print()
-        print("Audio level jumps (time, step_dB) - threshold >10dB:")
+            log(f"  {format_time(black_end)} dur={dur:.2f}s{marker}")
+        log("")
+        log("Audio level jumps (time, step_dB) - threshold >10dB:")
         for t in sorted(result.audio_changes.keys()):
             step = result.audio_changes[t]
             marker = " ***" if step >= 25 else " **" if step >= 18 else " *" if step >= 12 else ""
-            print(f"  {format_time(t)} step={step:5.1f}dB{marker}")
-        print()
-        print("Legend: * = low score, ** = medium, *** = high")
-
+            log(f"  {format_time(t)} step={step:5.1f}dB{marker}")
+        log("")
+        log("Legend: * = low score, ** = medium, *** = high")
         if result.noise_zones:
-            print()
-            print("Noise zones (suppressed interior detections):")
+            log("")
+            log("Noise zones (suppressed interior detections):")
             for zone in result.noise_zones:
-                print(f"  {format_time(zone.start)} - {format_time(zone.end)} ({zone.end - zone.start:.1f}s, {zone.detection_count} detections)")
+                log(f"  {format_time(zone.start)} - {format_time(zone.end)} ({zone.end - zone.start:.1f}s, {zone.detection_count} detections)")
 
-    if args.verbose:
-        print()
-        print("=== ALL CANDIDATES (chronological) ===")
-        print("Scoring: scene(0-40) + black(0-35) + audio(0-30) = max 105")
-        print()
+        log("")
+        log("=== ALL CANDIDATES (chronological) ===")
+        log("Scoring: scene(0-40) + black(0-35) + audio(0-30) = max 105")
+        log("")
         for c in sorted(all_candidates, key=lambda x: x.time):
             selected = "SELECTED" if c in cuts else f"skip (below {args.min_confidence})" if c.confidence_score < args.min_confidence else "skip (too close)"
             s, b, a = c.score_breakdown()
             score_str = f"[{c.confidence_score:3d}={s:2d}+{b:2d}+{a:2d}]"
-            print(f"  {format_time(c.time)} {score_str} {c.signal_summary():40s} -> {selected}")
+            log(f"  {format_time(c.time)} {score_str} {c.signal_summary():40s} -> {selected}")
+        log("")
+
+        if not cuts:
+            log_always("No cuts detected. Try lowering --min-confidence")
+            sys.exit(0)
+
+        log_always(f"\nFound {len(cuts)} cut(s):")
+        for cut in cuts:
+            log_always(f"  {format_time(cut.time)} [score:{cut.confidence_score:3d}] ({cut.signal_summary()})")
+        log_always("")
+
+        num_segments = len(cuts) + 1
+        log_always(f"Will create {num_segments} segment(s)")
+        log_always("")
+
+        if args.dry_run:
+            print("[Dry run - no files created]")
+            return
+
+        print(f"Splitting to: {video_subdir}")
+        output_files = split_video(args.input, video_subdir, cuts, duration)
         print()
 
-    if not cuts:
-        print("No cuts detected. Try lowering --min-confidence")
-        sys.exit(0)
+        # Save splits.json with all detection data
+        boundaries = [0.0] + [c.time for c in cuts] + [duration]
+        splits_file = SplitsFile(
+            source_file=args.input.name,
+            duration=duration,
+            processed_date=datetime.now().isoformat(),
+            parameters=SplitParameters(
+                min_confidence=args.min_confidence,
+                min_gap=args.min_gap
+            ),
+            detection=DetectionData(
+                scenes=[SceneDetection(time=t, score=s) for t, s in result.scenes],
+                blacks=[BlackDetection(end_time=t, duration=d) for t, d in result.blacks],
+                audio_changes=[AudioChange(time=t, step=s) for t, s in result.audio_changes.items()]
+            ),
+            candidates=[
+                CandidateInfo(
+                    time=c.time,
+                    scene_score=c.scene_score,
+                    black_duration=c.black_duration,
+                    audio_step=c.audio_step,
+                    confidence_score=c.confidence_score,
+                    selected=c in cuts
+                ) for c in sorted(all_candidates, key=lambda x: x.time)
+            ],
+            segments=[
+                SegmentInfo(
+                    index=i + 1,
+                    start=boundaries[i],
+                    end=boundaries[i + 1],
+                    output_file=output_files[i].name
+                ) for i in range(len(output_files))
+            ]
+        )
+        splits_file.save(video_subdir / "splits.json")
 
-    print(f"\nFound {len(cuts)} cut(s):")
-    for cut in cuts:
-        print(f"  {format_time(cut.time)} [score:{cut.confidence_score:3d}] ({cut.signal_summary()})")
-    print()
+        skip_transcribe = args.skip_transcribe or args.split_only
+        clips = process_clips(video_subdir, output_files, transcribe=not skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
+        metadata = VideoMetadata(
+            source_file=args.input.name,
+            processed_date=datetime.now().isoformat(),
+            clips=clips
+        )
+        metadata.save(metadata_path)
 
-    num_segments = len(cuts) + 1
-    print(f"Will create {num_segments} segment(s)")
-    print()
-
-    if args.dry_run:
-        print("[Dry run - no files created]")
-        return
-
-    print(f"Splitting to: {video_subdir}")
-    output_files = split_video(args.input, video_subdir, cuts, duration)
-    print()
-
-    # Save splits.json with all detection data
-    boundaries = [0.0] + [c.time for c in cuts] + [duration]
-    splits_file = SplitsFile(
-        source_file=args.input.name,
-        duration=duration,
-        processed_date=datetime.now().isoformat(),
-        parameters=SplitParameters(
-            min_confidence=args.min_confidence,
-            min_gap=args.min_gap
-        ),
-        detection=DetectionData(
-            scenes=[SceneDetection(time=t, score=s) for t, s in result.scenes],
-            blacks=[BlackDetection(end_time=t, duration=d) for t, d in result.blacks],
-            audio_changes=[AudioChange(time=t, step=s) for t, s in result.audio_changes.items()]
-        ),
-        candidates=[
-            CandidateInfo(
-                time=c.time,
-                scene_score=c.scene_score,
-                black_duration=c.black_duration,
-                audio_step=c.audio_step,
-                confidence_score=c.confidence_score,
-                selected=c in cuts
-            ) for c in sorted(all_candidates, key=lambda x: x.time)
-        ],
-        segments=[
-            SegmentInfo(
-                index=i + 1,
-                start=boundaries[i],
-                end=boundaries[i + 1],
-                output_file=output_files[i].name
-            ) for i in range(len(output_files))
-        ]
-    )
-    splits_file.save(video_subdir / "splits.json")
-
-    skip_transcribe = args.skip_transcribe or args.split_only
-    clips = process_clips(video_subdir, output_files, transcribe=not skip_transcribe, workers=args.workers, transcribe_workers=args.transcribe_workers)
-    metadata = VideoMetadata(
-        source_file=args.input.name,
-        processed_date=datetime.now().isoformat(),
-        clips=clips
-    )
-    metadata.save(metadata_path)
-
-    generate_gallery(args.output_dir, transcribe=not skip_transcribe)
-    print()
-    print("Done!")
+        generate_gallery(args.output_dir, transcribe=not skip_transcribe)
+        print()
+        print("Done!")
+    finally:
+        log_file.close()
 
 
 if __name__ == "__main__":

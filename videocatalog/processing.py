@@ -395,7 +395,8 @@ def verify_candidates(
     scene_max_scores: dict[int, float],
     noise_zones: list[NoiseZone] | None = None,
     threshold: float = 0.7,
-    verbose: bool = False
+    verbose: bool = False,
+    log_file=None,
 ) -> list[CutCandidate]:
     """Filter candidates by verifying with histogram comparison, flash and side stability.
 
@@ -404,8 +405,13 @@ def verify_candidates(
     - Audio corroboration: side stability + flash check (catches camera motion)
     - Scene-only: histogram + stability checks
     """
-    if verbose:
-        print(f"  Verifying {len(candidates)} candidates with histogram comparison...")
+    def log(msg: str):
+        if verbose:
+            print(msg)
+        if log_file:
+            log_file.write(msg + "\n")
+
+    log(f"  Verifying {len(candidates)} candidates with histogram comparison...")
 
     verified = []
     for c in candidates:
@@ -416,8 +422,7 @@ def verify_candidates(
 
         # Black frame = strong signal, skip all checks
         if has_black:
-            if verbose:
-                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (black frame)")
+            log(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (black frame)")
             verified.append(c)
             continue
 
@@ -425,19 +430,16 @@ def verify_candidates(
         if near_noise:
             is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
             if not is_valid:
-                if verbose:
-                    print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (noise zone)")
+                log(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (noise zone)")
                 continue
 
         # Audio corroboration: pass without histogram check, just flash check
         if has_audio:
             is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
             if is_flash:
-                if verbose:
-                    print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+                log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
                 continue
-            if verbose:
-                print(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (audio)")
+            log(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (audio)")
             verified.append(c)
             continue
 
@@ -445,23 +447,19 @@ def verify_candidates(
         if max_score < 10:
             is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
             if not is_valid:
-                if verbose:
-                    print(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)")
+                log(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)")
                 continue
 
         # Flash detection for scene-only candidates
         is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
         if is_flash:
-            if verbose:
-                print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+            log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
             continue
 
-        if verbose:
-            print(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> PASS")
+        log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> PASS")
         verified.append(c)
 
-    if verbose:
-        print(f"  Verified: {len(verified)}/{len(candidates)} candidates passed")
+    log(f"  Verified: {len(verified)}/{len(candidates)} candidates passed")
 
     return verified
 
@@ -702,6 +700,7 @@ def detect_cuts(
     min_confidence: int = 12,
     min_gap: float = 1.0,
     verbose: bool = False,
+    log_file=None,
 ) -> CutDetectionResult:
     """Run full cut detection pipeline: detect signals -> find cuts -> verify.
 
@@ -728,7 +727,7 @@ def detect_cuts(
         return_all=True
     )
 
-    verified = verify_candidates(video_path, cuts, scene_max, noise_zones=noise_zones, verbose=verbose)
+    verified = verify_candidates(video_path, cuts, scene_max, noise_zones=noise_zones, verbose=verbose, log_file=log_file)
 
     return CutDetectionResult(
         cuts=verified,
