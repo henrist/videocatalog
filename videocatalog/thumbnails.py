@@ -5,12 +5,13 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-
 SPRITE_THUMB_W, SPRITE_THUMB_H = 320, 180
 SPRITE_GAP = 2
 
 
-def generate_thumbnails(video_path: Path, thumb_dir: Path, duration: float, count: int = 12) -> list[str]:
+def generate_thumbnails(
+    video_path: Path, thumb_dir: Path, duration: float, count: int = 12
+) -> list[str]:
     """Generate multiple thumbnails from video, always including first and last frame."""
     thumbs = []
 
@@ -27,12 +28,17 @@ def generate_thumbnails(video_path: Path, thumb_dir: Path, duration: float, coun
         thumb_path = thumb_dir / thumb_name
 
         cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(seek),
-            "-i", str(video_path),
-            "-vframes", "1",
-            "-q:v", "3",
-            str(thumb_path)
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(seek),
+            "-i",
+            str(video_path),
+            "-vframes",
+            "1",
+            "-q:v",
+            "3",
+            str(thumb_path),
         ]
         subprocess.run(cmd, capture_output=True)
         thumbs.append(thumb_name)
@@ -48,7 +54,7 @@ def create_sprite(thumb_dir: Path, thumb_names: list[str], video_stem: str) -> s
     cols, rows = 4, 3
     sprite_w = SPRITE_THUMB_W * cols + SPRITE_GAP * (cols - 1)
     sprite_h = SPRITE_THUMB_H * rows + SPRITE_GAP * (rows - 1)
-    sprite = Image.new('RGBA', (sprite_w, sprite_h), (0, 0, 0, 0))
+    sprite = Image.new("RGBA", (sprite_w, sprite_h), (0, 0, 0, 0))
 
     for i, thumb_name in enumerate(thumb_names):
         thumb_path = thumb_dir / thumb_name
@@ -57,10 +63,12 @@ def create_sprite(thumb_dir: Path, thumb_names: list[str], video_stem: str) -> s
         col, row = i % cols, i // cols
         x = col * (SPRITE_THUMB_W + SPRITE_GAP)
         y = row * (SPRITE_THUMB_H + SPRITE_GAP)
-        img = ImageOps.fit(Image.open(thumb_path), (SPRITE_THUMB_W, SPRITE_THUMB_H), Image.LANCZOS)
+        img = ImageOps.fit(
+            Image.open(thumb_path), (SPRITE_THUMB_W, SPRITE_THUMB_H), Image.Resampling.LANCZOS
+        )
         sprite.paste(img, (x, y))
         thumb_path.unlink()
 
     sprite_name = f"{video_stem}_sprite.webp"
-    sprite.save(thumb_dir / sprite_name, 'WEBP', quality=85)
+    sprite.save(thumb_dir / sprite_name, "WEBP", quality=85)
     return sprite_name

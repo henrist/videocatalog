@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .utils import has_content
 
-
 _whisper_model = None
 
 
@@ -15,6 +14,7 @@ def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
+
         print(f"  [pid {os.getpid()}] Loading Whisper large-v3 model...")
         _whisper_model = WhisperModel("large-v3", device="auto", compute_type="auto")
     return _whisper_model
@@ -22,18 +22,23 @@ def get_whisper_model():
 
 def extract_audio(video_path: Path) -> Path:
     """Extract audio from video to WAV for cleaner transcription."""
-    wav_path = video_path.with_suffix('.wav')
+    wav_path = video_path.with_suffix(".wav")
     if wav_path.exists():
         return wav_path
 
     cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_path),
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
         "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
-        str(wav_path)
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        str(wav_path),
     ]
     subprocess.run(cmd, capture_output=True)
     return wav_path
@@ -47,14 +52,14 @@ def _transcribe_wav(wav_path: Path) -> str:
         language="no",
         beam_size=10,
         vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500}
+        vad_parameters={"min_silence_duration_ms": 500},
     )
     return " ".join(seg.text.strip() for seg in segments)
 
 
 def transcribe_from_wav(video_path: Path, wav_path: Path) -> str:
     """Transcribe from pre-extracted WAV file. Deletes WAV when done."""
-    txt_path = video_path.with_suffix('.txt')
+    txt_path = video_path.with_suffix(".txt")
 
     if has_content(txt_path):
         wav_path.unlink(missing_ok=True)

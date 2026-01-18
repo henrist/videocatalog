@@ -62,8 +62,12 @@ def main():
 
     actual_end = end_time or result.duration
     segment_duration = actual_end - args.start
-    print(f"  Analyzed: {args.start}s - {actual_end}s ({segment_duration:.1f}s of {result.duration:.1f}s total)")
-    print(f"  Scenes: {len(result.scenes)}, Blacks: {len(result.blacks)}, Audio changes: {len(result.audio_changes)}")
+    print(
+        f"  Analyzed: {args.start}s - {actual_end}s ({segment_duration:.1f}s of {result.duration:.1f}s total)"
+    )
+    print(
+        f"  Scenes: {len(result.scenes)}, Blacks: {len(result.blacks)}, Audio changes: {len(result.audio_changes)}"
+    )
 
     cut_times = [c.time for c in result.cuts]
 

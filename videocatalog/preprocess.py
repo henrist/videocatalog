@@ -16,16 +16,25 @@ def preprocess_dv_file(input_path: Path, output_path: Path, threads: int = 0) ->
     """
     temp_path = output_path.with_suffix(".tmp.mp4")
     cmd = [
-        "ffmpeg", "-y",
-        "-i", str(input_path),
-        "-vf", "yadif",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-threads", str(threads),
-        "-c:a", "aac",
-        "-b:a", "192k",
-        str(temp_path)
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-vf",
+        "yadif",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-threads",
+        str(threads),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(temp_path),
     ]
     run_ffmpeg(cmd, check=True)
     temp_path.rename(output_path)

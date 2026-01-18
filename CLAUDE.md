@@ -8,10 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync                                    # Install dependencies
 uv run videocatalog process video.avi      # Process video (outputs to ./output)
 uv run videocatalog serve                  # Start edit server
-uv run python -c "from videocatalog import cli, processing, detection, splitting, thumbnails, transcription, preprocess, utils"  # Verify imports
 ```
 
 **Docs:** CLI options documented in README.md - update when changing arguments.
+
+## After Code Changes
+
+Always run before committing:
+
+```bash
+uv run ruff format . && uv run ruff check . && uv run ty check
+```
 
 ## Architecture
 

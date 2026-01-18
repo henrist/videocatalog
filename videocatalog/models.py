@@ -1,6 +1,5 @@
 """Data models for videocatalog."""
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -10,6 +9,7 @@ from pydantic import BaseModel, Field, computed_field
 
 class ClipInfo(BaseModel):
     """Metadata for a single video clip."""
+
     file: str
     name: str
     thumbs: list[str]
@@ -20,6 +20,7 @@ class ClipInfo(BaseModel):
 
 class VideoMetadata(BaseModel):
     """Metadata for a processed source video."""
+
     source_file: str
     processed_date: str
     clips: list[ClipInfo] = Field(default_factory=list)
@@ -28,7 +29,7 @@ class VideoMetadata(BaseModel):
         path.write_text(self.model_dump_json(indent=2))
 
     @classmethod
-    def load(cls, path: Path) -> 'VideoMetadata':
+    def load(cls, path: Path) -> "VideoMetadata":
         return cls.model_validate_json(path.read_text())
 
 
@@ -37,18 +38,21 @@ ConfidenceLevel = Literal["high", "medium", "low"]
 
 class TagInfo(BaseModel):
     """A tag with confidence level."""
+
     name: str
     confidence: ConfidenceLevel = "high"
 
 
 class YearInfo(BaseModel):
     """Year estimate with confidence level."""
+
     year: int
     confidence: ConfidenceLevel = "low"
 
 
 class EditableMetadata(BaseModel):
     """User-editable metadata for a video or clip."""
+
     tags: list[TagInfo] = Field(default_factory=list)
     year: YearInfo | None = None
     description: str | None = None
@@ -56,6 +60,7 @@ class EditableMetadata(BaseModel):
 
 class ClipGroup(BaseModel):
     """A group of successive clips with shared metadata."""
+
     id: str
     start_clip: str
     end_clip: str
@@ -66,6 +71,7 @@ class ClipGroup(BaseModel):
 
 class UserEditsFile(BaseModel):
     """User edits for a video and its clips."""
+
     video: EditableMetadata = Field(default_factory=EditableMetadata)
     groups: list[ClipGroup] = Field(default_factory=list)
     clips: dict[str, EditableMetadata] = Field(default_factory=dict)
@@ -74,12 +80,13 @@ class UserEditsFile(BaseModel):
         path.write_text(self.model_dump_json(indent=2))
 
     @classmethod
-    def load(cls, path: Path) -> 'UserEditsFile':
+    def load(cls, path: Path) -> "UserEditsFile":
         return cls.model_validate_json(path.read_text())
 
 
 class CutCandidate(BaseModel):
     """A potential cut point with confidence scoring."""
+
     time: float
     scene_score: float = 0.0
     black_duration: float = 0.0
@@ -122,6 +129,7 @@ class CutCandidate(BaseModel):
 @dataclass
 class NoiseZone:
     """A detected noise/static zone where scene detection is suppressed."""
+
     start: float
     end: float
     detection_count: int
@@ -130,6 +138,7 @@ class NoiseZone:
 @dataclass
 class CutDetectionResult:
     """Result of the full cut detection pipeline."""
+
     cuts: list[CutCandidate]
     all_candidates: list[CutCandidate]
     scene_max_scores: dict[int, float]
@@ -142,26 +151,31 @@ class CutDetectionResult:
 
 # Split detection data models
 
+
 class SceneDetection(BaseModel):
     """A detected scene change."""
+
     time: float
     score: float
 
 
 class BlackDetection(BaseModel):
     """A detected black frame sequence."""
+
     end_time: float
     duration: float
 
 
 class AudioChange(BaseModel):
     """A detected audio level change."""
+
     time: int
     step: float
 
 
 class DetectionData(BaseModel):
     """All raw detection signals."""
+
     scenes: list[SceneDetection] = Field(default_factory=list)
     blacks: list[BlackDetection] = Field(default_factory=list)
     audio_changes: list[AudioChange] = Field(default_factory=list)
@@ -169,6 +183,7 @@ class DetectionData(BaseModel):
 
 class CandidateInfo(BaseModel):
     """A cut candidate with selection status."""
+
     time: float
     scene_score: float = 0.0
     black_duration: float = 0.0
@@ -179,6 +194,7 @@ class CandidateInfo(BaseModel):
 
 class SegmentInfo(BaseModel):
     """A video segment created by splitting."""
+
     index: int
     start: float
     end: float
@@ -187,12 +203,14 @@ class SegmentInfo(BaseModel):
 
 class SplitParameters(BaseModel):
     """Parameters used for split detection."""
+
     min_confidence: int
     min_gap: float
 
 
 class SplitsFile(BaseModel):
     """Complete split detection data for a video."""
+
     source_file: str
     duration: float
     processed_date: str
@@ -205,5 +223,5 @@ class SplitsFile(BaseModel):
         path.write_text(self.model_dump_json(indent=2))
 
     @classmethod
-    def load(cls, path: Path) -> 'SplitsFile':
+    def load(cls, path: Path) -> "SplitsFile":
         return cls.model_validate_json(path.read_text())

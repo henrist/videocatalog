@@ -6,12 +6,15 @@ import subprocess
 import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Literal, overload
 
 from .models import CutCandidate, CutDetectionResult, NoiseZone
 from .utils import format_time, get_video_duration
 
 
-def detect_scenes(video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0) -> list[tuple[float, float]]:
+def detect_scenes(
+    video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0
+) -> list[tuple[float, float]]:
     """Detect scene changes using FFmpeg's scdet filter.
 
     Args:
@@ -27,11 +30,7 @@ def detect_scenes(video_path: Path, limit: float = 0, start_time: float = 0, end
     duration = end_time - start_time if end_time > 0 else limit
     if duration > 0:
         cmd += ["-t", str(duration)]
-    cmd += [
-        "-i", str(video_path),
-        "-vf", "histeq,scdet=threshold=0.1",
-        "-f", "null", "-"
-    ]
+    cmd += ["-i", str(video_path), "-vf", "histeq,scdet=threshold=0.1", "-f", "null", "-"]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     pattern = r"lavfi\.scd\.score:\s*([\d.]+),\s*lavfi\.scd\.time:\s*([\d.]+)"
@@ -45,7 +44,9 @@ def detect_scenes(video_path: Path, limit: float = 0, start_time: float = 0, end
     return scenes
 
 
-def detect_black_frames(video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0) -> list[tuple[float, float]]:
+def detect_black_frames(
+    video_path: Path, limit: float = 0, start_time: float = 0, end_time: float = 0
+) -> list[tuple[float, float]]:
     """Detect black frames using FFmpeg's blackdetect filter.
 
     Args:
@@ -61,11 +62,7 @@ def detect_black_frames(video_path: Path, limit: float = 0, start_time: float = 
     duration = end_time - start_time if end_time > 0 else limit
     if duration > 0:
         cmd += ["-t", str(duration)]
-    cmd += [
-        "-i", str(video_path),
-        "-vf", "blackdetect=d=0.1:pix_th=0.10",
-        "-an", "-f", "null", "-"
-    ]
+    cmd += ["-i", str(video_path), "-vf", "blackdetect=d=0.1:pix_th=0.10", "-an", "-f", "null", "-"]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     pattern = r"black_start:([\d.]+)\s+black_end:([\d.]+)\s+black_duration:([\d.]+)"
@@ -79,7 +76,9 @@ def detect_black_frames(video_path: Path, limit: float = 0, start_time: float = 
     return blacks
 
 
-def detect_audio_changes(video_path: Path, duration: float, limit: float = 0, start_time: float = 0, end_time: float = 0) -> dict[int, float]:
+def detect_audio_changes(
+    video_path: Path, duration: float, limit: float = 0, start_time: float = 0, end_time: float = 0
+) -> dict[int, float]:
     """Compute per-second RMS levels and detect large changes.
 
     Args:
@@ -99,9 +98,13 @@ def detect_audio_changes(video_path: Path, duration: float, limit: float = 0, st
     if segment_duration > 0:
         cmd += ["-t", str(segment_duration)]
     cmd += [
-        "-i", str(video_path),
-        "-af", f"asetnsamples=n=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file={rms_file}",
-        "-f", "null", "-"
+        "-i",
+        str(video_path),
+        "-af",
+        f"asetnsamples=n=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file={rms_file}",
+        "-f",
+        "null",
+        "-",
     ]
     subprocess.run(cmd, capture_output=True, text=True)
 
@@ -113,7 +116,7 @@ def detect_audio_changes(video_path: Path, duration: float, limit: float = 0, st
             for match in re.finditer(pattern, content):
                 t = int(match.group(1)) + int(start_time)  # Convert to absolute time
                 level_str = match.group(2)
-                if level_str == '-inf' or level_str == '-':
+                if level_str == "-inf" or level_str == "-":
                     continue
                 level = float(level_str)
                 rms[t] = level
@@ -132,7 +135,9 @@ def detect_audio_changes(video_path: Path, duration: float, limit: float = 0, st
     return changes
 
 
-def verify_scene_change(video_path: Path, time: float, threshold: float = 0.7) -> tuple[bool, float]:
+def verify_scene_change(
+    video_path: Path, time: float, threshold: float = 0.7
+) -> tuple[bool, float]:
     """Verify scene change by comparing color histograms before/after.
 
     Uses histogram comparison which is robust to camera motion.
@@ -151,16 +156,40 @@ def verify_scene_change(video_path: Path, time: float, threshold: float = 0.7) -
 
     try:
         # Extract frame before
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", str(before_time), "-i", str(video_path),
-            "-frames:v", "1", "-f", "image2", str(frame1)
-        ], capture_output=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(before_time),
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                "-f",
+                "image2",
+                str(frame1),
+            ],
+            capture_output=True,
+        )
 
         # Extract frame after
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", str(after_time), "-i", str(video_path),
-            "-frames:v", "1", "-f", "image2", str(frame2)
-        ], capture_output=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(after_time),
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                "-f",
+                "image2",
+                str(frame2),
+            ],
+            capture_output=True,
+        )
 
         if not frame1.exists() or not frame2.exists():
             return True, 0.0
@@ -193,9 +222,7 @@ def verify_scene_change(video_path: Path, time: float, threshold: float = 0.7) -
 
 
 def check_scene_stability(
-    video_path: Path,
-    time: float,
-    threshold: float = 0.955
+    video_path: Path, time: float, threshold: float = 0.955
 ) -> tuple[bool, float, float]:
     """Check if distant frames before/after cut are similar (flash detection).
 
@@ -212,14 +239,38 @@ def check_scene_stability(
         frame2 = tmp_dir / f"stab_after_{os.getpid()}.png"
 
         try:
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", str(max(0, before_time)), "-i", str(video_path),
-                "-frames:v", "1", "-f", "image2", str(frame1)
-            ], capture_output=True)
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", str(after_time), "-i", str(video_path),
-                "-frames:v", "1", "-f", "image2", str(frame2)
-            ], capture_output=True)
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(max(0, before_time)),
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "image2",
+                    str(frame1),
+                ],
+                capture_output=True,
+            )
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(after_time),
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "image2",
+                    str(frame2),
+                ],
+                capture_output=True,
+            )
 
             if not frame1.exists() or not frame2.exists():
                 return 0.0
@@ -247,14 +298,14 @@ def check_scene_stability(
 
     # Flash if EITHER interval is very high AND both are at least moderately high
     # This avoids filtering real cuts that have one high but one low interval
-    is_flash = (sim_short >= threshold or sim_long >= threshold) and min(sim_short, sim_long) >= 0.85
+    is_flash = (sim_short >= threshold or sim_long >= threshold) and min(
+        sim_short, sim_long
+    ) >= 0.85
     return is_flash, sim_short, sim_long
 
 
 def check_side_stability(
-    video_path: Path,
-    time: float,
-    threshold: float = 0.7
+    video_path: Path, time: float, threshold: float = 0.7
 ) -> tuple[bool, float, float]:
     """Check if at least one side of cut has stable/similar frames.
 
@@ -280,24 +331,36 @@ def check_side_stability(
     tmp_dir = Path(tempfile.gettempdir())
     frames = {}
     times = {
-        'before_far': max(0, time - 2.0),
-        'before_near': max(0, time - 0.5),
-        'after_near': time + 0.5,
-        'after_far': time + 2.0
+        "before_far": max(0, time - 2.0),
+        "before_near": max(0, time - 0.5),
+        "after_near": time + 0.5,
+        "after_far": time + 2.0,
     }
 
     try:
         for name, t in times.items():
             path = tmp_dir / f"side_{name}_{os.getpid()}.png"
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", str(t), "-i", str(video_path),
-                "-frames:v", "1", "-f", "image2", str(path)
-            ], capture_output=True)
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(t),
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "image2",
+                    str(path),
+                ],
+                capture_output=True,
+            )
             frames[name] = cv2.imread(str(path)) if path.exists() else None
 
         # Compare frames on each side
-        sim_before = compare_histogram(frames['before_far'], frames['before_near'])
-        sim_after = compare_histogram(frames['after_near'], frames['after_far'])
+        sim_before = compare_histogram(frames["before_far"], frames["before_near"])
+        sim_after = compare_histogram(frames["after_near"], frames["after_far"])
 
         # At least one side should be stable for a real cut
         has_stable_side = sim_before >= threshold or sim_after >= threshold
@@ -310,17 +373,12 @@ def check_side_stability(
 
 
 def is_near_noise_zone(
-    time: float,
-    noise_zones: list[NoiseZone] | None,
-    margin: float = 10.0
+    time: float, noise_zones: list[NoiseZone] | None, margin: float = 10.0
 ) -> bool:
     """Check if timestamp is within margin of any noise zone."""
     if not noise_zones:
         return False
-    for zone in noise_zones:
-        if zone.start - margin <= time <= zone.end + margin:
-            return True
-    return False
+    return any(zone.start - margin <= time <= zone.end + margin for zone in noise_zones)
 
 
 def verify_candidates(
@@ -339,6 +397,7 @@ def verify_candidates(
     - Audio corroboration: side stability + flash check (catches camera motion)
     - Scene-only: histogram + stability checks
     """
+
     def log(msg: str):
         if verbose:
             print(msg)
@@ -364,14 +423,18 @@ def verify_candidates(
         if near_noise:
             is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
             if not is_valid:
-                log(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (noise zone)")
+                log(
+                    f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (noise zone)"
+                )
                 continue
 
         # Audio corroboration: pass without histogram check, just flash check
         if has_audio:
             is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
             if is_flash:
-                log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+                log(
+                    f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)"
+                )
                 continue
             log(f"    {format_time(c.time)} max={max_score:.1f} -> PASS (audio)")
             verified.append(c)
@@ -381,16 +444,22 @@ def verify_candidates(
         if max_score < 10:
             is_valid, similarity = verify_scene_change(video_path, c.time, threshold)
             if not is_valid:
-                log(f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)")
+                log(
+                    f"    {format_time(c.time)} max={max_score:.1f} hist={similarity:.3f} -> FAIL (same scene)"
+                )
                 continue
 
         # Flash detection for scene-only candidates
         is_flash, sim_short, sim_long = check_scene_stability(video_path, c.time)
         if is_flash:
-            log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)")
+            log(
+                f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> FAIL (flash)"
+            )
             continue
 
-        log(f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> PASS")
+        log(
+            f"    {format_time(c.time)} max={max_score:.1f} stab={sim_short:.2f}/{sim_long:.2f} -> PASS"
+        )
         verified.append(c)
 
     log(f"  Verified: {len(verified)}/{len(candidates)} candidates passed")
@@ -403,7 +472,7 @@ def detect_noise_zones(
     window_size: int = 10,
     avg_threshold: float = 2.5,
     min_duration: float = 10.0,
-    merge_gap: float = 5.0
+    merge_gap: float = 5.0,
 ) -> list[NoiseZone]:
     """Detect noise zones by sustained high scene detection density.
 
@@ -451,17 +520,19 @@ def detect_noise_zones(
         else:
             zone_duration = zone_end - zone_start + window_size
             if zone_duration >= min_duration:
-                zone_count = sum(detections_per_sec.get(zone_start + i, 0)
-                                for i in range(zone_duration))
-                zones.append(NoiseZone(float(zone_start), float(zone_start + zone_duration), zone_count))
+                zone_count = sum(
+                    detections_per_sec.get(zone_start + i, 0) for i in range(zone_duration)
+                )
+                zones.append(
+                    NoiseZone(float(zone_start), float(zone_start + zone_duration), zone_count)
+                )
             zone_start = t
             zone_end = t
 
     # Don't forget last zone
     zone_duration = zone_end - zone_start + window_size
     if zone_duration >= min_duration:
-        zone_count = sum(detections_per_sec.get(zone_start + i, 0)
-                        for i in range(zone_duration))
+        zone_count = sum(detections_per_sec.get(zone_start + i, 0) for i in range(zone_duration))
         zones.append(NoiseZone(float(zone_start), float(zone_start + zone_duration), zone_count))
 
     # Merge zones within merge_gap
@@ -479,9 +550,7 @@ def detect_noise_zones(
 
 
 def suppress_noise_detections(
-    scenes: list[tuple[float, float]],
-    noise_zones: list[NoiseZone],
-    boundary_margin: float = 5.0
+    scenes: list[tuple[float, float]], noise_zones: list[NoiseZone], boundary_margin: float = 5.0
 ) -> list[tuple[float, float]]:
     """Remove scene detections inside noise zones, keeping boundary detections.
 
@@ -507,6 +576,7 @@ def suppress_noise_detections(
     return filtered
 
 
+@overload
 def find_cuts(
     scenes: list[tuple[float, float]],
     blacks: list[tuple[float, float]],
@@ -514,8 +584,34 @@ def find_cuts(
     min_confidence: int,
     min_gap: float = 10.0,
     window: int = 2,
-    return_all: bool = False
-) -> list[CutCandidate] | tuple[list[CutCandidate], list[CutCandidate], dict[int, float], list[NoiseZone]]:
+    return_all: Literal[False] = False,
+) -> list[CutCandidate]: ...
+
+
+@overload
+def find_cuts(
+    scenes: list[tuple[float, float]],
+    blacks: list[tuple[float, float]],
+    audio_changes: dict[int, float],
+    min_confidence: int,
+    min_gap: float = 10.0,
+    window: int = 2,
+    return_all: Literal[True] = ...,
+) -> tuple[list[CutCandidate], list[CutCandidate], dict[int, float], list[NoiseZone]]: ...
+
+
+def find_cuts(
+    scenes: list[tuple[float, float]],
+    blacks: list[tuple[float, float]],
+    audio_changes: dict[int, float],
+    min_confidence: int,
+    min_gap: float = 10.0,
+    window: int = 2,
+    return_all: bool = False,
+) -> (
+    list[CutCandidate]
+    | tuple[list[CutCandidate], list[CutCandidate], dict[int, float], list[NoiseZone]]
+):
     """Combine signals to find recording boundaries.
 
     Uses cluster totals: sum of all scene scores in same second.
@@ -574,9 +670,8 @@ def find_cuts(
                 _, duration = black_map[check_t]
                 if duration > best_black_duration:
                     best_black_duration = duration
-            if check_t in audio_changes:
-                if audio_changes[check_t] > best_audio_step:
-                    best_audio_step = audio_changes[check_t]
+            if check_t in audio_changes and audio_changes[check_t] > best_audio_step:
+                best_audio_step = audio_changes[check_t]
 
         # Only apply audio bonus if scene is strong (max >= 10)
         # For borderline detections, audio often indicates noise not confirmation
@@ -586,7 +681,7 @@ def find_cuts(
             time=scene_best_time[t],
             scene_score=cluster_total,  # Use cluster total as score
             black_duration=best_black_duration,
-            audio_step=effective_audio
+            audio_step=effective_audio,
         )
         candidates.append(candidate)
 
@@ -597,7 +692,7 @@ def find_cuts(
                 time=float(t),
                 scene_score=0.0,
                 black_duration=black_map.get(t, (0, 0))[1] if t in black_map else 0.0,
-                audio_step=step
+                audio_step=step,
             )
             candidates.append(candidate)
 
@@ -649,16 +744,22 @@ def detect_cuts(
 
     scenes = detect_scenes(video_path, start_time=start_time, end_time=end_time)
     blacks = detect_black_frames(video_path, start_time=start_time, end_time=end_time)
-    audio_changes = detect_audio_changes(video_path, duration, start_time=start_time, end_time=end_time)
-
-    cuts, all_candidates, scene_max, noise_zones = find_cuts(
-        scenes, blacks, audio_changes,
-        min_confidence=min_confidence,
-        min_gap=min_gap,
-        return_all=True
+    audio_changes = detect_audio_changes(
+        video_path, duration, start_time=start_time, end_time=end_time
     )
 
-    verified = verify_candidates(video_path, cuts, scene_max, noise_zones=noise_zones, verbose=verbose, log_file=log_file)
+    cuts, all_candidates, scene_max, noise_zones = find_cuts(
+        scenes,
+        blacks,
+        audio_changes,
+        min_confidence=min_confidence,
+        min_gap=min_gap,
+        return_all=True,
+    )
+
+    verified = verify_candidates(
+        video_path, cuts, scene_max, noise_zones=noise_zones, verbose=verbose, log_file=log_file
+    )
 
     return CutDetectionResult(
         cuts=verified,

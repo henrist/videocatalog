@@ -6,14 +6,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .models import ClipInfo
-from .thumbnails import generate_thumbnails, create_sprite
+from .thumbnails import create_sprite, generate_thumbnails
 from .transcription import extract_audio, transcribe_from_wav, transcribe_worker
 from .utils import (
-    run_ffmpeg,
-    has_content,
-    get_video_duration,
     format_duration,
     get_default_workers,
+    get_video_duration,
+    has_content,
+    run_ffmpeg,
 )
 
 
@@ -23,25 +23,34 @@ def convert_to_mp4(video_path: Path, threads: int = 0) -> Path:
     Args:
         threads: Number of encoding threads (0 = auto/all cores)
     """
-    if video_path.suffix.lower() == '.mp4':
+    if video_path.suffix.lower() == ".mp4":
         return video_path
 
-    mp4_path = video_path.with_suffix('.mp4')
+    mp4_path = video_path.with_suffix(".mp4")
     if mp4_path.exists():
         return mp4_path
 
-    print(f"    Converting to MP4...")
+    print("    Converting to MP4...")
     cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_path),
-        "-vf", "yadif,hqdn3d",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "22",
-        "-threads", str(threads),
-        "-c:a", "aac",
-        "-b:a", "128k",
-        str(mp4_path)
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vf",
+        "yadif,hqdn3d",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "22",
+        "-threads",
+        str(threads),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        str(mp4_path),
     ]
     run_ffmpeg(cmd, check=True)
     return mp4_path
@@ -52,7 +61,7 @@ def process_clips(
     video_files: list[Path],
     transcribe: bool = True,
     workers: int = 0,
-    transcribe_workers: int = 1
+    transcribe_workers: int = 1,
 ) -> list[ClipInfo]:
     """Process clips with parallel audio extraction and thumbnails."""
     thumb_dir = video_subdir / "thumbs"
@@ -64,14 +73,16 @@ def process_clips(
     print(f"Processing {len(video_files)} clips (workers={workers})...")
 
     # Phase 1: Convert to MP4 if needed (parallel)
-    non_mp4 = [(i, v) for i, v in enumerate(video_files) if v.suffix.lower() != '.mp4']
+    non_mp4 = [(i, v) for i, v in enumerate(video_files) if v.suffix.lower() != ".mp4"]
     mp4_results = {}  # index -> mp4_path
     if non_mp4:
         # Limit parallelism: fewer workers than files = more threads per worker
         cpu_count = os.cpu_count() or 4
         convert_workers = min(workers, len(non_mp4))
         threads = max(1, cpu_count // convert_workers)
-        print(f"  Converting {len(non_mp4)} non-MP4 files ({convert_workers} workers, {threads} threads each)...")
+        print(
+            f"  Converting {len(non_mp4)} non-MP4 files ({convert_workers} workers, {threads} threads each)..."
+        )
         with ThreadPoolExecutor(max_workers=convert_workers) as executor:
             futures = {executor.submit(convert_to_mp4, v, threads): i for i, v in non_mp4}
             for future in as_completed(futures):
@@ -82,8 +93,10 @@ def process_clips(
                     print(f"    Error converting {video_files[idx].name}: {e}")
                     mp4_results[idx] = video_files[idx]  # keep original on error
     # Build mp4_files list preserving order
-    mp4_files = [mp4_results.get(i, v if v.suffix.lower() == '.mp4' else v.with_suffix('.mp4'))
-                 for i, v in enumerate(video_files)]
+    mp4_files = [
+        mp4_results.get(i, v if v.suffix.lower() == ".mp4" else v.with_suffix(".mp4"))
+        for i, v in enumerate(video_files)
+    ]
 
     # Phase 2: Get durations for all files (needed for thumbnails and final clip info)
     print("  Getting durations...")
@@ -101,7 +114,7 @@ def process_clips(
     # Phase 3: Extract audio in parallel (for files needing transcription)
     wav_map = {}  # mp4_path -> wav_path
     if transcribe:
-        to_transcribe = [f for f in mp4_files if not f.with_suffix('.txt').exists()]
+        to_transcribe = [f for f in mp4_files if not f.with_suffix(".txt").exists()]
         if to_transcribe:
             print(f"  Extracting audio for {len(to_transcribe)} files...")
             with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -126,10 +139,12 @@ def process_clips(
             else:
                 # Parallel - each process loads own model
                 work_items = [(str(mp4), str(wav)) for mp4, wav in wav_map.items()]
-                ctx = multiprocessing.get_context('spawn')
+                ctx = multiprocessing.get_context("spawn")
                 pool = ctx.Pool(processes=transcribe_workers)
                 try:
-                    for i, (video_path_str, transcript) in enumerate(pool.imap_unordered(transcribe_worker, work_items), 1):
+                    for i, (video_path_str, transcript) in enumerate(
+                        pool.imap_unordered(transcribe_worker, work_items), 1
+                    ):
                         print(f"    [{i}/{len(wav_map)}] {Path(video_path_str).name}")
                         transcripts[Path(video_path_str)] = transcript
                 finally:
@@ -145,7 +160,9 @@ def process_clips(
     print("  Generating thumbnails...")
     thumb_results = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(generate_thumbnails, f, thumb_dir, durations[f]): f for f in mp4_files}
+        futures = {
+            executor.submit(generate_thumbnails, f, thumb_dir, durations[f]): f for f in mp4_files
+        }
         for future in as_completed(futures):
             mp4 = futures[future]
             try:
@@ -164,7 +181,7 @@ def process_clips(
     # Build final clip list (preserve original order)
     clips = []
     for mp4_file in mp4_files:
-        txt_path = mp4_file.with_suffix('.txt')
+        txt_path = mp4_file.with_suffix(".txt")
         if mp4_file in transcripts:
             transcript = transcripts[mp4_file]
         elif has_content(txt_path):
@@ -175,13 +192,15 @@ def process_clips(
         duration = durations.get(mp4_file, 0.0)
         sprite = sprite_results.get(mp4_file)
 
-        clips.append(ClipInfo(
-            file=mp4_file.name,
-            name=mp4_file.stem,
-            thumbs=[],
-            sprite=f"thumbs/{sprite}" if sprite else None,
-            duration=format_duration(duration),
-            transcript=transcript
-        ))
+        clips.append(
+            ClipInfo(
+                file=mp4_file.name,
+                name=mp4_file.stem,
+                thumbs=[],
+                sprite=f"thumbs/{sprite}" if sprite else None,
+                duration=format_duration(duration),
+                transcript=transcript,
+            )
+        )
 
     return clips

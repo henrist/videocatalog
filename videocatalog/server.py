@@ -3,11 +3,11 @@
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from .models import UserEditsFile
 from .gallery import generate_gallery
+from .models import UserEditsFile
 
 app = FastAPI(title="Video Catalog")
 
@@ -15,9 +15,9 @@ app = FastAPI(title="Video Catalog")
 @app.get("/")
 async def index():
     """Serve the gallery HTML, optionally regenerating first."""
-    if not hasattr(app.state, 'output_dir'):
+    if not hasattr(app.state, "output_dir"):
         raise HTTPException(500, "Server not configured")
-    if getattr(app.state, 'regenerate', False):
+    if getattr(app.state, "regenerate", False):
         generate_gallery(app.state.output_dir)
     gallery_path = app.state.output_dir / "gallery.html"
     if not gallery_path.exists():
@@ -27,7 +27,7 @@ async def index():
 
 def _get_video_dir(video_name: str) -> Path:
     """Get video directory, validating it exists and is within output_dir."""
-    if not hasattr(app.state, 'output_dir'):
+    if not hasattr(app.state, "output_dir"):
         raise HTTPException(500, "Server not configured")
 
     output_dir = app.state.output_dir.resolve()
@@ -69,7 +69,7 @@ def create_app(directory: Path, regenerate: bool = False) -> FastAPI:
     app.state.regenerate = regenerate
 
     # Track mounted routes to avoid duplicates on repeated calls
-    mounted = getattr(app.state, 'mounted_routes', set())
+    mounted = getattr(app.state, "mounted_routes", set())
 
     # Mount static files for video subdirs (must be after API routes)
     for subdir in app.state.output_dir.iterdir():
@@ -81,7 +81,9 @@ def create_app(directory: Path, regenerate: bool = False) -> FastAPI:
     return app
 
 
-def run_server(directory: Path, host: str = "127.0.0.1", port: int = 8000, regenerate: bool = False):
+def run_server(
+    directory: Path, host: str = "127.0.0.1", port: int = 8000, regenerate: bool = False
+):
     """Run the server."""
     import uvicorn
 

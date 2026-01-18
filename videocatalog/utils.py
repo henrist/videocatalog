@@ -7,6 +7,7 @@ from pathlib import Path
 
 class SubprocessError(Exception):
     """Raised when a subprocess command fails."""
+
     pass
 
 
@@ -29,16 +30,20 @@ def has_content(path: Path) -> bool:
 def get_video_duration(video_path: Path) -> float:
     """Get video duration in seconds."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(video_path)
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
     ]
     result = run_ffmpeg(cmd, check=True)
     try:
         return float(result.stdout.strip())
-    except ValueError:
-        raise SubprocessError(f"Invalid duration from ffprobe: {result.stdout!r}")
+    except ValueError as e:
+        raise SubprocessError(f"Invalid duration from ffprobe: {result.stdout!r}") from e
 
 
 def format_time(seconds: float) -> str:

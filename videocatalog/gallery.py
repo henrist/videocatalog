@@ -5,14 +5,14 @@ import importlib.resources
 import json
 from pathlib import Path
 
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader, Environment
 
-from .models import VideoMetadata, UserEditsFile
+from .models import UserEditsFile, VideoMetadata
 
 
 def _parse_duration_secs(duration_str: str) -> int:
     """Parse duration string like '1:23' or '1:02:34' to seconds."""
-    parts = duration_str.split(':')
+    parts = duration_str.split(":")
     if len(parts) == 2:
         return int(parts[0]) * 60 + int(parts[1])
     elif len(parts) == 3:
@@ -44,15 +44,17 @@ def generate_gallery(output_dir: Path, transcribe: bool = True) -> None:
         # Build clip data with escaped transcripts
         clips_data = []
         for clip in metadata.clips:
-            clips_data.append({
-                "name": clip.name,
-                "file": clip.file,
-                "sprite": clip.sprite,
-                "thumbs": clip.thumbs,
-                "duration": clip.duration,
-                "duration_secs": _parse_duration_secs(clip.duration),
-                "transcript": html_lib.escape(clip.transcript),
-            })
+            clips_data.append(
+                {
+                    "name": clip.name,
+                    "file": clip.file,
+                    "sprite": clip.sprite,
+                    "thumbs": clip.thumbs,
+                    "duration": clip.duration,
+                    "duration_secs": _parse_duration_secs(clip.duration),
+                    "transcript": html_lib.escape(clip.transcript),
+                }
+            )
 
         sources.append({"name": subdir.name, "clips": clips_data})
         print(f"  Found {len(metadata.clips)} clips in {subdir.name}")

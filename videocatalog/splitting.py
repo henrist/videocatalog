@@ -3,14 +3,11 @@
 from pathlib import Path
 
 from .models import CutCandidate
-from .utils import run_ffmpeg, format_time, format_time_filename
+from .utils import format_time, format_time_filename, run_ffmpeg
 
 
 def split_video(
-    video_path: Path,
-    output_dir: Path,
-    cuts: list[CutCandidate],
-    duration: float
+    video_path: Path, output_dir: Path, cuts: list[CutCandidate], duration: float
 ) -> list[Path]:
     """Split video at cut boundaries, transcoding to MP4."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -28,20 +25,32 @@ def split_video(
         output_path = output_dir / f"{stem}_{time_stamp}.mp4"
         output_files.append(output_path)
 
-        print(f"  Segment {segment_num}: {format_time(start)} -> {format_time(end)} => {output_path.name}")
+        print(
+            f"  Segment {segment_num}: {format_time(start)} -> {format_time(end)} => {output_path.name}"
+        )
 
         cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start),
-            "-i", str(video_path),
-            "-t", str(end - start),
-            "-vf", "yadif,hqdn3d",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "22",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-i",
+            str(video_path),
+            "-t",
+            str(end - start),
+            "-vf",
+            "yadif,hqdn3d",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "22",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            str(output_path),
         ]
 
         run_ffmpeg(cmd, check=True)
