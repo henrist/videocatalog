@@ -24,7 +24,7 @@ from .models import (
     SplitsFile,
     VideoMetadata,
 )
-from .preprocess import preprocess_dv_file
+from .preprocess import preprocess_dv_file, preprocess_film_scan
 from .processing import convert_to_mp4, process_clips
 from .splitting import split_video
 from .transcription import extract_audio, transcribe_from_wav, transcribe_worker
@@ -318,32 +318,40 @@ def cmd_serve(args):
 
 
 def cmd_preprocess(args):
-    """Convert DV files to MP4 with deinterlacing."""
+    """Convert DV/film scan files to MP4."""
     if not args.input.is_dir():
         print(f"Error: Input must be a directory: {args.input}", file=sys.stderr)
         sys.exit(1)
 
     args.target_dir.mkdir(parents=True, exist_ok=True)
-    avi_files = sorted(
-        f for f in args.input.iterdir() if f.is_file() and f.suffix.lower() == ".avi"
+    input_files = sorted(
+        f for f in args.input.iterdir() if f.is_file() and f.suffix.lower() in (".avi", ".mp4")
     )
 
-    if not avi_files:
-        print(f"No .avi files found in {args.input}")
+    if not input_files:
+        print(f"No .avi or .mp4 files found in {args.input}")
         sys.exit(0)
 
     # Partition into skip/convert
     to_convert = []
-    for avi in avi_files:
-        mp4_path = args.target_dir / f"{avi.stem}.mp4"
-        if mp4_path.exists():
-            print(f"Skip (exists): {avi.name}")
+    for src in input_files:
+        dst_path = args.target_dir / f"{src.stem}.mp4"
+        if dst_path.exists():
+            print(f"Skip (exists): {src.name}")
         else:
-            to_convert.append((avi, mp4_path))
+            to_convert.append((src, dst_path))
 
     if not to_convert:
         print("All files already converted")
         sys.exit(0)
+
+    def get_processor(src: Path):
+        if args.type == "dv":
+            return preprocess_dv_file
+        elif args.type == "film-scan":
+            return preprocess_film_scan
+        # Auto-detect from extension
+        return preprocess_dv_file if src.suffix.lower() == ".avi" else preprocess_film_scan
 
     cpu_count = os.cpu_count() or 4
     default_workers = max(1, cpu_count // 2)
@@ -354,7 +362,8 @@ def cmd_preprocess(args):
 
     def convert_one(item: tuple[Path, Path]) -> str:
         src, dst = item
-        preprocess_dv_file(src, dst, threads=threads)
+        processor = get_processor(src)
+        processor(src, dst, threads=threads)
         return src.name
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -581,13 +590,20 @@ def main():
     p_serve.set_defaults(func=cmd_serve)
 
     # preprocess subcommand
-    p_preprocess = subparsers.add_parser("preprocess", help="Convert DV files to MP4")
-    p_preprocess.add_argument("input", type=Path, help="Input directory containing .avi files")
+    p_preprocess = subparsers.add_parser("preprocess", help="Convert DV/film scan files to MP4")
+    p_preprocess.add_argument(
+        "input", type=Path, help="Input directory containing .avi or .mp4 files"
+    )
     p_preprocess.add_argument(
         "--target-dir", type=Path, required=True, help="Target directory for converted files"
     )
     p_preprocess.add_argument(
         "--workers", type=int, default=0, help="Number of parallel workers (default: auto)"
+    )
+    p_preprocess.add_argument(
+        "--type",
+        choices=["dv", "film-scan"],
+        help="Source type: dv (interlaced AVI) or film-scan (progressive MP4). Auto-detects from extension if not specified.",
     )
     p_preprocess.set_defaults(func=cmd_preprocess)
 

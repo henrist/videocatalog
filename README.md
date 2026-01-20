@@ -58,8 +58,9 @@ open http://localhost:8000
 - `--host` / `--port` - Server bind options (default: 127.0.0.1:8000)
 - `--regenerate` - Regenerate gallery HTML on each page load
 
-**`preprocess INPUT --target-dir DIR`** - Convert DV files to MP4 with deinterlacing
+**`preprocess INPUT --target-dir DIR`** - Convert DV/film scan files to MP4
 - `--workers N` - Parallel workers (default: auto)
+- `--type dv|film-scan` - Source type (default: auto-detect from extension)
 
 **`transcribe`** - Transcribe existing clips
 - `--output-dir` - Output directory (default: output)
