@@ -4,6 +4,30 @@ Turn hours of old video camera footage into a searchable gallery.
 
 Automatically detects recording boundaries, splits into clips, transcribes audio, and generates a web page where you can browse thumbnails, search transcripts, and play clips.
 
+## Preprocessing
+
+The `preprocess` command converts source files to efficient H.264 MP4 for use with the main `process` command.
+
+### Interlaced video (`--type dv`)
+
+Applies yadif deinterlacing → H.264 CRF 18. Use for interlaced sources like DV captures.
+
+### Progressive video (`--type film-scan`)
+
+Re-encodes to H.264 CRF 18 without deinterlacing. Preserves original frame rate and resolution. Use for high-bitrate progressive sources like film scans.
+
+## Tested Source Material
+
+This tool was developed and tested with the following source material:
+
+### DV captures
+
+DV25-encoded AVI files (720×576 PAL, 25fps, ~29 Mbps, interlaced) digitized from VHS, Hi8, and MiniDV tapes. These analog/digital formats have different effective resolutions (~240-500 lines) but produce identical DV25 files when captured.
+
+### Film scans
+
+High-bitrate H.264 MP4 files (2540×1530, 50-75 Mbps, progressive) from 8mm (16 fps) and Super 8 (18 fps) film scanners.
+
 ## Requirements
 
 - Python 3.12+ with ffmpeg installed
