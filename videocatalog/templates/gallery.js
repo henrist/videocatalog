@@ -1299,12 +1299,36 @@ function updateNavGroupCounts() {
 }
 updateNavGroupCounts();
 
+// Eagerly render a source if not yet rendered (prevents DOM shifts during scroll)
+function ensureSourceRendered(sourceGroup) {
+  const source = sourceGroup.dataset.source;
+  if (renderedSources.has(source)) return;
+  renderedSources.add(source);
+  const sourceTagsEl = sourceGroup.querySelector('.source-tags-year');
+  if (sourceTagsEl) renderSourceTagsYear(sourceTagsEl);
+  const sourceDescEl = sourceGroup.querySelector('.source-description');
+  if (sourceDescEl) renderDescription(sourceDescEl);
+  renderGroupsForSource(source);
+}
+
 // Click-to-scroll
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
     const source = item.dataset.source;
     const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
     if (sourceGroup) {
+      // Render all unrendered sources between current scroll position and target
+      // to prevent DOM height changes during smooth scroll
+      const targetTop = sourceGroup.getBoundingClientRect().top;
+      for (const sg of groups) {
+        if (sg.classList.contains('hidden')) continue;
+        const sgTop = sg.getBoundingClientRect().top;
+        if ((targetTop > 0 && sgTop >= 0 && sgTop <= targetTop) ||
+            (targetTop < 0 && sgTop >= targetTop && sgTop <= 0)) {
+          ensureSourceRendered(sg);
+        }
+      }
+      ensureSourceRendered(sourceGroup);
       sourceGroup.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
