@@ -1339,7 +1339,8 @@ const navItems = document.querySelectorAll('.nav-item');
 const sourceGroups = document.querySelectorAll('.source-group');
 
 function updateActiveNav() {
-  const offset = 100; // pixels from viewport top to trigger
+  const stickyHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-header-height')) || 60;
+  const offset = stickyHeight + 20; // just past sticky header
   let activeSource = null;
 
   // Find the last source group whose top has scrolled past the trigger point
